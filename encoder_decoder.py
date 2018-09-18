@@ -819,6 +819,17 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         for i in range(FLAGS.beam_size):
             group_state.append(init_state)
 
+        def getValue(value, pos):
+            first_row = pos[0, :] + 1
+            first_row = tf.diag(first_row)  # leverage diag to get the batch_size.
+            _, batch_num = tf.nn.top_k(first_row, k=1)
+            batch_num = tf.tile([batch_num], [FLAGS.beam_size, 1, 1])  # [k,B,1]
+            pos = tf.expand_dims(pos, axis=2)  # [k,B,1]
+            pos = tf.concat([pos, batch_num], axis=-1)
+            value_return = tf.gather_nd(value, pos)
+
+            return value_return
+
         for i in trange(1, FLAGS.infer_max_output_time_steps):
 
             probability = []
@@ -848,18 +859,6 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             _next_BS_input = tf.transpose(_next_BS_input)  # [K,B]
 
             probability_value = tf.transpose(probability_value)  # [k,B]
-
-
-            def getValue(value, pos):
-                first_row = pos[0, :] + 1
-                first_row = tf.diag(first_row)  # leverage diag to get the batch_size.
-                _, batch_num = tf.nn.top_k(first_row, k=1)
-                batch_num = tf.tile([batch_num], [FLAGS.beam_size, 1, 1])  # [k,B,1]
-                pos = tf.expand_dims(pos, axis=2)  # [k,B,1]
-                pos = tf.concat([pos, batch_num], axis=-1)
-                value_return = tf.gather_nd(value, pos)
-
-                return value_return
 
             top_k_branch = tf.concat(
                 [getValue(top_k_branch_copy, _group), tf.expand_dims(_next_BS_input, axis=2)], axis=-1)  # [K,B,x]
