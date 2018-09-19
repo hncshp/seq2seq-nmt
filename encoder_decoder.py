@@ -615,9 +615,10 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         if FLAGS.num_layers == 1:
             with tf.variable_scope('encoding_single_rnn', initializer=tf.orthogonal_initializer(), reuse=tf.AUTO_REUSE):
                 cell = cell()
+                initial_state = cell.zero_state(tf.shape(input_data)[1], dtype=tf.float32)
                 outputs, state = tf.nn.dynamic_rnn(cell, input_data,
                                                    sequence_length=input_length,
-                                                   # initial_state=initial_state,
+                                                   initial_state=initial_state,
                                                    time_major=True,
                                                    dtype=tf.float32)
 
@@ -633,6 +634,8 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                         cell_fw=cell_fw,
                         cell_bw=cell_bw,
                         inputs=input_data,
+                        initial_state_fw=cell_fw.zero_state(tf.shape(input_data)[1], dtype=tf.float32),
+                        initial_state_bw=cell_bw.zero_state(tf.shape(input_data)[1], dtype=tf.float32),
                         sequence_length=input_length,
                         dtype=tf.float32,
                         time_major=True)
@@ -648,10 +651,14 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                 with tf.variable_scope('encoding_multi_rnn', initializer=tf.orthogonal_initializer(), reuse=tf.AUTO_REUSE):
                     cell = tf.nn.rnn_cell.MultiRNNCell([cell() for _ in range(FLAGS.num_layers)])
 
+                    initial_state = cell.zero_state(tf.shape(input_data)[1], dtype=tf.float32)
+
                     outputs, state = tf.nn.dynamic_rnn(cell, input_data,
                                                        sequence_length=input_length,
-                                                       time_major=True,
-                                                       dtype=tf.float32)
+                                                       initial_state=initial_state,
+                                                       dtype=tf.float32,
+                                                       time_major=True
+                                                       )
             # -----------------------------------------------------------------------------------
 
         return outputs, state
