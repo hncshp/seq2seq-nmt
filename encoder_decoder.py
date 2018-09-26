@@ -256,7 +256,7 @@ def add_Argumets(parser):
     parser.add_argument("--attention_mode", type="bool", nargs='?', const=True, default=True,
                         help="True for hard attention mode; False for soft attention mode")
     parser.add_argument("--input_att_comb_or_not", type="bool", nargs='?', const=True, default=True,
-                        help="combine the attention with input or add them")
+                        help="combine the attention with input or not")
     parser.add_argument("--residual_mode", type="bool", nargs='?', const=True, default=True,
                         help="True for residual mode; False for not residual mode")
     parser.add_argument("--reverse_encoder_input", type="bool", nargs='?', const=True, default=False,
