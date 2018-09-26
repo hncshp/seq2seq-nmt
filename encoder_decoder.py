@@ -787,7 +787,12 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                 kernel_regularizer=regularizer
             )
 
-        return current_context_hidden_combined, (fw_softmax + bw_softmax)/2.0
+        if FLAGS.bi_or_uni and FLAGS.num_layers >=2:
+            softmax = (fw_softmax + bw_softmax)/2.0
+        else:
+            softmax = fw_softmax
+
+        return current_context_hidden_combined, softmax
         # --------------------------------soft attention and hard attention common parts--------------------------------
 
     def encoder(input_data, input_len):
