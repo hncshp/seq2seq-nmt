@@ -787,7 +787,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                 kernel_regularizer=regularizer
             )
 
-        return current_context_hidden_combined, fw_softmax  # , bw_softmax
+        return current_context_hidden_combined, (fw_softmax + bw_softmax)/2.0
         # --------------------------------soft attention and hard attention common parts--------------------------------
 
     def encoder(input_data, input_len):
