@@ -255,7 +255,7 @@ def add_Argumets(parser):
                         help="if beam search or not. True means beam search; False means not")
     parser.add_argument("--attention_mode", type="bool", nargs='?', const=True, default=True,
                         help="True for hard attention mode; False for soft attention mode")
-    parser.add_argument("--input_att_comb_or_add", type="bool", nargs='?', const=True, default=True,
+    parser.add_argument("--input_att_comb_or_not", type="bool", nargs='?', const=True, default=True,
                         help="combine the attention with input or add them")
     parser.add_argument("--residual_mode", type="bool", nargs='?', const=True, default=True,
                         help="True for residual mode; False for not residual mode")
@@ -673,7 +673,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             if drop_out > 0.0:
                 rnn_cell = tf.nn.rnn_cell.DropoutWrapper(cell=rnn_cell, input_keep_prob=(1.0 - drop_out))
 
-            if FLAGS.residual_mode and not FLAGS.input_att_comb_or_add:
+            if FLAGS.residual_mode and not FLAGS.input_att_comb_or_not:
                 rnn_cell = tf.nn.rnn_cell.ResidualWrapper(cell=rnn_cell)
             return rnn_cell
 
@@ -797,15 +797,15 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
     def next_word_with_union_prob(input_data, pre_union_probability, hidden_states, context_hidden_combined, state):
 
         input_data = tf.nn.embedding_lookup(decoding_embedding, input_data)  # [B, H]
-        if FLAGS.input_att_comb_or_add:
+        if FLAGS.input_att_comb_or_not:
             inp_concat = tf.concat([context_hidden_combined, input_data], axis=-1)
         else:
-            inp_concat = tf.add(context_hidden_combined, input_data)
+            inp_concat = input_data
         inp_concat = tf.expand_dims(inp_concat, 0)
         outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=state)
 
         current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
-        if FLAGS.residual_mode and FLAGS.input_att_comb_or_add:
+        if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
             _output = projection_layer(inputs=current_context_hidden_combined + input_data)
         else:
             _output = projection_layer(inputs=current_context_hidden_combined)
@@ -916,10 +916,10 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[1][0])
         else:
             current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[-1])
-        if FLAGS.input_att_comb_or_add:
+        if FLAGS.input_att_comb_or_not:
             inp_concat = tf.concat([current_context_hidden_combined, EOS_tag], axis=-1)
         else:
-            inp_concat = tf.add(current_context_hidden_combined, EOS_tag)
+            inp_concat = EOS_tag
         inp_concat = tf.expand_dims(inp_concat, 0)
         outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=init_state)
 
@@ -939,10 +939,10 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                     _state_.append(tf.nn.rnn_cell.LSTMStateTuple(c=_state[i][0], h=_state[i][1]))
                 _state = tuple(_state_)
 
-            if FLAGS.input_att_comb_or_add:
+            if FLAGS.input_att_comb_or_not:
                 inp_concat = tf.concat([_cchc, input_data[_time]], axis=-1)
             else:
-                inp_concat = tf.add(_cchc, input_data[_time])
+                inp_concat = input_data[_time]
             inp_concat = tf.expand_dims(inp_concat, 0)
             _outputs, _state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=_state)
 
@@ -960,7 +960,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             shape_invariants=[time.get_shape(), tf.TensorShape([None, None, FLAGS.num_units]),
                               current_context_hidden_combined.get_shape(), state.get_shape()]
         )
-        if FLAGS.residual_mode and FLAGS.input_att_comb_or_add:
+        if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
             decoder_outputs += input_data
 
         return decoder_outputs, softmax_outputs
@@ -975,17 +975,17 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         else:
             current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[-1])
 
-        if FLAGS.input_att_comb_or_add:
+        if FLAGS.input_att_comb_or_not:
             inp_concat = tf.concat([current_context_hidden_combined, EOS_tag], axis=-1)
         else:
-            inp_concat = tf.add(current_context_hidden_combined, EOS_tag)
+            inp_concat = EOS_tag
         inp_concat = tf.expand_dims(inp_concat, 0)  # [1, B, 2*H]
         outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=init_state)
 
         current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
 
         if FLAGS.beam_search:
-            if FLAGS.residual_mode and FLAGS.input_att_comb_or_add:
+            if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
                 _output = projection_layer(inputs=current_context_hidden_combined + input_data)
             else:
                 _output = projection_layer(inputs=current_context_hidden_combined)
@@ -995,7 +995,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
         else:
             for i in trange(FLAGS.infer_max_output_time_steps):
-                if FLAGS.residual_mode and FLAGS.input_att_comb_or_add:
+                if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
                     _output = projection_layer(inputs=current_context_hidden_combined + input_data)
                 else:
                     _output = projection_layer(inputs=current_context_hidden_combined)
@@ -1004,10 +1004,10 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                 if i < (FLAGS.infer_max_output_time_steps - 1):
                     _output = tf.nn.softmax(_output)
                     input_data = tf.nn.embedding_lookup(decoding_embedding, tf.argmax(_output, axis=-1))
-                    if FLAGS.input_att_comb_or_add:
+                    if FLAGS.input_att_comb_or_not:
                         inp_concat = tf.concat([current_context_hidden_combined, input_data], axis=-1)
                     else:
-                        inp_concat = tf.add(current_context_hidden_combined, input_data)
+                        inp_concat = input_data
                     inp_concat = tf.expand_dims(inp_concat, 0)
                     outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=state)
 
