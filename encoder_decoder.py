@@ -559,10 +559,12 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                            initializer=tf.orthogonal_initializer()):
         # Variables
         fw_ht_hs_weights = tf.get_variable(name="fw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units], -0.1, 0.1),
+                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], -0.1,
+                                                                           0.1),
                                            regularizer=regularizer)
         bw_ht_hs_weights = tf.get_variable(name="bw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units], -0.1, 0.1),
+                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], -0.1,
+                                                                           0.1),
                                            regularizer=regularizer)
 
         # embedding
@@ -572,7 +574,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         # hard attetion mode parameters
         # Weights for the position prediction
         wp_weights = tf.get_variable(name='wp_weights',
-                                     initializer=tf.truncated_normal([FLAGS.num_units], -0.1, 0.1),
+                                     initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], -0.1, 0.1),
                                      regularizer=regularizer)
         # Weights for the position prediction
         vp_weights = tf.get_variable(name='vp_weights',
@@ -708,7 +710,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         if FLAGS.attention_mode:  # True, means hard attention; False means soft attention
 
             # local-p  [B,1]
-            p_t_1 = tf.matmul(tf.tanh(tf.multiply(current_hidden_state, wp_weights)), vp_weights)
+            p_t_1 = tf.matmul(tf.tanh(tf.matmul(current_hidden_state, wp_weights)), vp_weights)  # [B,1]
             p_t_2 = tf.sigmoid(p_t_1)
             p_t = tf.to_float(tf.shape(fw_hidden_states)[0]) * p_t_2
             p_t = tf.floor(p_t)
@@ -736,32 +738,30 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         # ----------------------------------Hard Attention Mode Specific Parts------------------------------------------
 
         # -------------------------------soft attention and hard attention common parts---------------------------------
-        # [FLAGS.input_time_steps, FLAGS.batch_size, FLAGS.num_units]==>[
-        # FLAGS.batch_size, FLAGS.input_time_steps, FLAGS.num_units]
+
         fw_hidden_states_copy = tf.transpose(fw_hidden_states, perm=[1, 0, 2])
         bw_hidden_states_copy = tf.transpose(bw_hidden_states, perm=[1, 0, 2])
 
-        fw_coff = tf.multiply(current_hidden_state, fw_ht_hs_weights)  # [B,H]
-        bw_coff = tf.multiply(current_hidden_state, bw_ht_hs_weights)  # [B,H]
+        fw_coff = tf.matmul(current_hidden_state, fw_ht_hs_weights)
+        bw_coff = tf.matmul(current_hidden_state, bw_ht_hs_weights)
 
-        fw_hidden_states = tf.multiply(fw_hidden_states, fw_coff)  # [T, B, H]
-        bw_hidden_states = tf.multiply(bw_hidden_states, bw_coff)  # [T, B, H]
-        # [FLAGS.input_time_steps, FLAGS.batch_size, FLAGS.num_units]==>
-        # [FLAGS.batch_size, FLAGS.input_time_steps, FLAGS.num_units]
-        fw_hidden_states = tf.transpose(fw_hidden_states, perm=[1, 0, 2])  # [B, T, H]
-        bw_hidden_states = tf.transpose(bw_hidden_states, perm=[1, 0, 2])  # [B, T, H]
-        fw_hidden_states = tf.reduce_sum(fw_hidden_states, axis=-1, keepdims=True)  # [B, T, 1]
-        bw_hidden_states = tf.reduce_sum(bw_hidden_states, axis=-1, keepdims=True)  # [B, T, 1]
+        fw_coff = tf.expand_dims(fw_coff, axis=1)
+        bw_coff = tf.expand_dims(bw_coff, axis=1)
 
-        # --------------------------------------------------------------------------------
-        fw_hidden_states = tf.exp(fw_hidden_states) * src_seq_mask
-        bw_hidden_states = tf.exp(bw_hidden_states) * src_seq_mask
+        fw_hidden_states = tf.transpose(fw_hidden_states, perm=[1, 2, 0])
+        bw_hidden_states = tf.transpose(bw_hidden_states, perm=[1, 2, 0])
 
-        fw_exp_sum = tf.reduce_sum(fw_hidden_states, axis=1, keepdims=True)
-        bw_exp_sum = tf.reduce_sum(bw_hidden_states, axis=1, keepdims=True)
+        fw_a_t = tf.transpose(tf.matmul(fw_coff, fw_hidden_states), [0, 2, 1])
+        bw_a_t = tf.transpose(tf.matmul(bw_coff, bw_hidden_states), [0, 2, 1])
 
-        fw_softmax = fw_hidden_states / fw_exp_sum  # [B, T, 1]
-        bw_softmax = bw_hidden_states / bw_exp_sum  # [B, T, 1]
+        fw_a_t = tf.exp(fw_a_t) * src_seq_mask
+        bw_a_t = tf.exp(bw_a_t) * src_seq_mask
+
+        fw_exp_sum = tf.reduce_sum(fw_a_t, axis=1, keepdims=True)
+        bw_exp_sum = tf.reduce_sum(bw_a_t, axis=1, keepdims=True)
+
+        fw_softmax = fw_a_t / fw_exp_sum
+        bw_softmax = bw_a_t / bw_exp_sum
         # --------------------------------------------------------------------------------
         # ------------------------------soft attention and hard attention common parts----------------------------------
         # ------------------------------------Hard Attention Mode Specific Parts----------------------------------------
