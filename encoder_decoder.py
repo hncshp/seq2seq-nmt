@@ -477,8 +477,8 @@ def model_fn(features, labels, mode, params):
 
             return tf.cond(
                 tf.train.get_global_step() < hparam.warmup_steps,
-                lambda: inv_decay * hparam.learning_rate,
-                lambda: hparam.learning_rate,
+                lambda: inv_decay * learning_rate,
+                lambda: learning_rate,
                 name="learning_rate_warump_cond")
 
         def get_learning_rate_decay(hparam):
@@ -491,27 +491,27 @@ def model_fn(features, labels, mode, params):
 
             return tf.cond(
                 tf.train.get_global_step() < start_decay_step,
-                lambda: hparam.learning_rate,
+                lambda: learning_rate,
                 lambda: tf.train.exponential_decay(
-                    hparam.learning_rate,
+                    learning_rate,
                     (tf.train.get_global_step() - start_decay_step),
                     decay_steps, decay_factor, staircase=True),
                 name="learning_rate_decay_cond")
 
         # learning_rate schema-----------------------------------
-        params.learning_rate = tf.constant(params.learning_rate)
+        learning_rate = tf.constant(params.learning_rate)
         # warm-up
-        params.learning_rate = get_learning_rate_warmup(params)
+        learning_rate = get_learning_rate_warmup(params)
         # decay
-        params.learning_rate = get_learning_rate_decay(params)
+        learning_rate = get_learning_rate_decay(params)
 
         # return a list of trainable variable in you model, for
         trainable_params = tf.trainable_variables()
 
         if FLAGS.optimizer == 'adam':
-            opt = tf.train.AdamOptimizer(learning_rate=params.learning_rate, beta1=0.9, beta2=0.98, epsilon=1e-8)
+            opt = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.9, beta2=0.98, epsilon=1e-8)
         elif FLAGS.optimizer == 'sgd':
-            opt = tf.train.GradientDescentOptimizer(params.learning_rate)
+            opt = tf.train.GradientDescentOptimizer(learning_rate)
 
         # compute gradients for params
         gradients = tf.gradients(loss, trainable_params, colocate_gradients_with_ops=True)
