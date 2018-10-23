@@ -464,8 +464,9 @@ def model_fn(features, labels, mode, params):
 
         loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=label_one_hot_mask, logits=logits_mask)
         loss = tf.reduce_sum(loss) / tf.count_nonzero(tgt_seq_mask, dtype=tf.float32)
-        regularizer_loss = FLAGS.reg_lambda * tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+
         if FLAGS.regularization:
+            regularizer_loss = FLAGS.reg_lambda * tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
             loss = loss + regularizer_loss
 
         def get_learning_rate_warmup(hparam):
@@ -509,7 +510,7 @@ def model_fn(features, labels, mode, params):
         trainable_params = tf.trainable_variables()
 
         if FLAGS.optimizer == 'adam':
-            opt = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.9, beta2=0.98, epsilon=1e-8)
+            opt = tf.train.AdamOptimizer(learning_rate)
         elif FLAGS.optimizer == 'sgd':
             opt = tf.train.GradientDescentOptimizer(learning_rate)
 
@@ -559,26 +560,34 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                            initializer=tf.orthogonal_initializer()):
         # Variables
         fw_ht_hs_weights = tf.get_variable(name="fw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], -0.1,
+                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,
                                                                            0.1),
+                                           dtype=tf.float32,
                                            regularizer=regularizer)
         bw_ht_hs_weights = tf.get_variable(name="bw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], -0.1,
+                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,
                                                                            0.1),
+                                           dtype=tf.float32,
                                            regularizer=regularizer)
 
         # embedding
-        encoding_embedding = tf.get_variable(name='encoding_embedding', shape=[FLAGS.input_vocab_size, FLAGS.num_units])
-        decoding_embedding = tf.get_variable(name='decoding_embedding', shape=[FLAGS.output_vocab_size, FLAGS.num_units])
+        encoding_embedding = tf.get_variable(name='encoding_embedding',
+                                             shape=[FLAGS.input_vocab_size, FLAGS.num_units],
+                                             dtype=tf.float32)
+        decoding_embedding = tf.get_variable(name='decoding_embedding',
+                                             shape=[FLAGS.output_vocab_size, FLAGS.num_units],
+                                             dtype=tf.float32)
 
         # hard attetion mode parameters
         # Weights for the position prediction
         wp_weights = tf.get_variable(name='wp_weights',
-                                     initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], -0.1, 0.1),
+                                     initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0, 0.1),
+                                     dtype=tf.float32,
                                      regularizer=regularizer)
         # Weights for the position prediction
         vp_weights = tf.get_variable(name='vp_weights',
-                                     initializer=tf.truncated_normal([FLAGS.num_units, 1], -0.1, 0.1),
+                                     initializer=tf.truncated_normal([FLAGS.num_units, 1], 0.0, 0.1),
+                                     dtype=tf.float32,
                                      regularizer=regularizer)
 
     def projection_layer(inputs):
