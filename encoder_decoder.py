@@ -253,6 +253,8 @@ def add_Argumets(parser):
                         help="True means fixed length; False means variable length")
     parser.add_argument("--beam_search", type="bool", nargs='?', const=True, default=True,
                         help="if beam search or not. True means beam search; False means not")
+    parser.add_argument("--label_smooth", type="bool", nargs='?', const=True, default=True,
+                        help="if label smooth or not. True means label smooth; False means not")
     parser.add_argument("--attention_mode", type="bool", nargs='?', const=True, default=True,
                         help="True for hard attention mode; False for soft attention mode")
     parser.add_argument("--input_att_comb_or_not", type="bool", nargs='?', const=True, default=True,
@@ -427,7 +429,11 @@ def model_fn(features, labels, mode, params):
     logits_mask = None
     tgt_seq_mask = None
 
-    def label_smoothing(inputs, epsilon=0.1):
+    def label_smoothing(inputs, l_smooth=True):
+        if l_smooth:
+            epsilon = 0.1
+        else:
+            epsilon = 0.0
         K = inputs.get_shape().as_list()[-1]
         return ((1 - epsilon) * inputs) + (epsilon / K)
 
@@ -467,7 +473,8 @@ def model_fn(features, labels, mode, params):
     opt = None
     if mode != ModeKeys.PREDICT:
 
-        loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=label_smoothing(label_one_hot_mask), logits=logits_mask)
+        loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+            labels=label_smoothing(label_one_hot_mask, FLAGS.label_smooth), logits=logits_mask)
         loss = tf.reduce_sum(loss) / tf.count_nonzero(tgt_seq_mask, dtype=tf.float32)
 
         if FLAGS.regularization:
