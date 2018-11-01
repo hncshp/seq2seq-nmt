@@ -426,6 +426,11 @@ def model_fn(features, labels, mode, params):
     label_one_hot_mask = None
     logits_mask = None
     tgt_seq_mask = None
+
+    def label_smoothing(inputs, epsilon=0.1):
+        K = inputs.get_shape().as_list()[-1]
+        return ((1 - epsilon) * inputs) + (epsilon / K)
+
     if mode != ModeKeys.PREDICT:
         features, feature_len = features
         features = tf.transpose(features)
@@ -462,7 +467,7 @@ def model_fn(features, labels, mode, params):
     opt = None
     if mode != ModeKeys.PREDICT:
 
-        loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=label_one_hot_mask, logits=logits_mask)
+        loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=label_smoothing(label_one_hot_mask), logits=logits_mask)
         loss = tf.reduce_sum(loss) / tf.count_nonzero(tgt_seq_mask, dtype=tf.float32)
 
         if FLAGS.regularization:
