@@ -366,14 +366,38 @@ def run_main(argv=None):
     pred_image = pred_out[:, :,
                  FLAGS.output_vocab_size:]
 
-    def clean(data):
+    # self-define function, used to remove '</s>' symbols in the tail of sentence.
+    def clean_batch(data):
         out = []
         for each in data:
-            out.append(each.strip().strip(' ' + UNK))
+            each_array = each.split()
+            each_temp = ''
+            for i in each_array:
+                if i != EOS:
+                    each_temp += (i + " ")
+                else:
+                    break
+            each_temp = each_temp.strip()
+            out.append(each_temp)
         return out
 
-    pred_label_show = clean(de_batches2string(pred_label))
-    pred_data_show = clean(de_batches2string(pred_data))
+    def clean_single(data):
+        each_array = data.split()
+        each_temp = ''
+        for i in each_array:
+            if i != EOS:
+                each_temp += (i + " ")
+            else:
+                break
+        out = each_temp.strip()
+        return out
+
+    if FLAGS.whitespace_or_nonws_slip:
+        pred_label_show = clean_batch(de_batches2string(pred_label))
+        pred_data_show = clean_batch(de_batches2string(pred_data))
+    else:
+        pred_label_show = de_batches2string(pred_label)
+        pred_data_show = de_batches2string(pred_data)
 
     for label_show, data_show in zip(pred_label_show, pred_data_show):
         print("----------------------------------------------------------------------------------------")
@@ -391,14 +415,14 @@ def run_main(argv=None):
     for i in range(len(pred_feature)):
         image_ids.append(random.randint(0, len(pred_feature) - 1))
     for seq_id in image_ids:
-        # only show the '<unk>' tail removed sentence.
+        # only show the '</s>' tail removed sentence.
         if FLAGS.whitespace_or_nonws_slip:
-            xlabel = en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0].strip().strip(' ' + UNK).split()
-            ylabel = de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0].strip().strip(
-                ' ' + UNK).split()
+            xlabel = clean_single(en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0]).split()
+            ylabel = clean_single(de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0]).split()
         else:
             xlabel = en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0].strip()
             ylabel = de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0].strip()
+
         ax.set_xticks(np.arange(len(xlabel)))
         ax.set_yticks(np.arange(len(ylabel)))
         ax.set_xticklabels(xlabel)
