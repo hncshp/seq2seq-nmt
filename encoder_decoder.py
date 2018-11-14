@@ -647,7 +647,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
     def encoder_lstm_units(input_data, input_length):
 
         def cell():
-            rnn_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=FLAGS.num_units)
+            rnn_cell = tf.nn.rnn_cell.LSTMCell(num_units=FLAGS.num_units)
             drop_out = 0.0
             if mode == ModeKeys.TRAIN:
                 drop_out = FLAGS.dropout
@@ -712,7 +712,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
     def decoder_lstm_units(input_data, input_length, init_state):
         def cell():
-            rnn_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=FLAGS.num_units)
+            rnn_cell = tf.nn.rnn_cell.LSTMCell(num_units=FLAGS.num_units)
             drop_out = 0.0
             if mode == ModeKeys.TRAIN:
                 drop_out = FLAGS.dropout
@@ -1162,7 +1162,7 @@ def get_train_inputs(src, tgt, batch_size):
                 return batching_func(windowed_data)
 
             batched_dataset = src_tgt_datasets.apply(
-                tf.contrib.data.group_by_window(
+                tf.data.experimental.group_by_window(
                     key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
 
             batched_dataset = batched_dataset.shuffle(10000)
@@ -1240,7 +1240,7 @@ def get_eval_inputs(src, tgt, batch_size):
                 return batching_func(windowed_data)
 
             batched_dataset = src_tgt_datasets.apply(
-                tf.contrib.data.group_by_window(
+                tf.data.experimental.group_by_window(
                     key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
 
             batched_dataset = batched_dataset.shuffle(10000)
