@@ -448,14 +448,25 @@ def run_main(argv=None):
 
 
 def model_fn(features, labels, mode, params):
+    """Model function used in the estimator.
 
-    label_one_hot_mask = None
-    logits_mask = None
-    tgt_seq_mask = None
+    Args:
+        features (Tensor): Input features to the model.
+        labels (Tensor): Labels tensor for training and evaluation.
+        mode (ModeKeys): Specifies if training, evaluation or prediction.
+        params (HParams): hyperparameters.
+
+    Returns:
+        (EstimatorSpec): Model to be run by Estimator.
+    """
+    # Loss, training and eval operations are not needed during inference.
+    loss = None
+    train_op = None
+    eval_metric_ops = {}
 
     def label_smoothing(inputs, l_smooth=True):
         if l_smooth:
-            epsilon = 0.1
+            epsilon = 0.05
         else:
             epsilon = 0.0
         K = inputs.get_shape().as_list()[-1]
@@ -469,15 +480,25 @@ def model_fn(features, labels, mode, params):
             tgt_seq_mask = tf.cast(tf.sequence_mask(label_len, FLAGS.max_output_time_steps), tf.float32)  # [B,T]
         else:
             tgt_seq_mask = tf.cast(tf.sequence_mask(label_len), tf.float32)  # [B,T]
-        tgt_seq_mask = tf.expand_dims(tf.transpose(tgt_seq_mask), axis=2)  # [T,B,1]
-        label_one_hot = tf.one_hot(indices=label_out, depth=FLAGS.output_vocab_size, axis=-1)  # [B, T, V]
-        # transpose to [T, B, V], for time.major is True, speed up calculation.
+        tgt_seq_mask_original = tf.transpose(tgt_seq_mask)  # [T,B]
+        tgt_seq_mask = tf.expand_dims(tgt_seq_mask_original, axis=2)
+        label_one_hot = tf.one_hot(indices=label_out, depth=FLAGS.output_vocab_size, axis=-1)
         label_one_hot = tf.transpose(label_one_hot, (1, 0, 2))  # [T,B,V]
-        label_one_hot_mask = label_one_hot * tgt_seq_mask  # only use the valuable data, 0 mask the non-valuable data
-        labels_in = tf.transpose(labels_in)  # [T,B]
+        label_one_hot_mask = label_one_hot * tgt_seq_mask
+        labels_in = tf.transpose(labels_in)
         logits, softmax = architecture(features, feature_len, labels_in, label_len, mode)
-        logits_mask = logits * tgt_seq_mask  # only use the valuable data, 0 mask the non-valuable data
-        predictions = tf.nn.softmax(logits) * tgt_seq_mask  # only use the valuable data, 0 mask the non-valuable data
+        logits_mask = logits * tgt_seq_mask
+        predictions = tf.nn.softmax(logits) * tgt_seq_mask
+
+        loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+            labels=label_smoothing(label_one_hot_mask, FLAGS.label_smooth), logits=logits_mask)
+        loss = tf.reduce_sum(loss) / tf.count_nonzero(tgt_seq_mask, dtype=tf.float32)
+        if FLAGS.regularization:
+            regularizer_loss = FLAGS.reg_lambda * tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+            loss = loss + regularizer_loss
+        train_op = get_train_op(loss, params)
+        eval_metric_ops = get_eval_metric_ops(tf.argmax(label_one_hot_mask, axis=-1), tf.argmax(predictions, axis=-1),
+                                              tgt_seq_mask_original)
     else:
         feature_len = features[:, -1]
         features = features[:, :-1]
@@ -490,77 +511,6 @@ def model_fn(features, labels, mode, params):
         else:
             predictions = tf.concat([tf.nn.softmax(logits), softmax], axis=-1)
 
-    # Loss, training and eval operations are not needed during inference.
-    loss = None
-    train_op = None
-    eval_metric_ops = {}
-    opt = None
-    if mode != ModeKeys.PREDICT:
-
-        loss = tf.nn.softmax_cross_entropy_with_logits_v2(
-            labels=label_smoothing(label_one_hot_mask, FLAGS.label_smooth), logits=logits_mask)
-        loss = tf.reduce_sum(loss) / tf.count_nonzero(tgt_seq_mask, dtype=tf.float32)
-
-        if FLAGS.regularization:
-            regularizer_loss = FLAGS.reg_lambda * tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
-            loss = loss + regularizer_loss
-
-        def get_learning_rate_warmup(hparam):
-            warmup_steps = hparam.warmup_steps
-
-            warmup_factor = tf.exp(tf.log(0.01) / warmup_steps)
-            inv_decay = warmup_factor ** (
-                tf.to_float(warmup_steps - tf.train.get_global_step()))
-
-            return tf.cond(
-                tf.train.get_global_step() < hparam.warmup_steps,
-                lambda: inv_decay * learning_rate,
-                lambda: learning_rate,
-                name="learning_rate_warump_cond")
-
-        def get_learning_rate_decay(hparam):
-            # Get learning rate decay.
-            decay_factor = 0.5
-            start_decay_step = int(hparam.train_steps * 2 / 3)
-            decay_times = 4
-            remain_steps = hparam.train_steps - start_decay_step
-            decay_steps = int(remain_steps / decay_times)
-
-            return tf.cond(
-                tf.train.get_global_step() < start_decay_step,
-                lambda: learning_rate,
-                lambda: tf.train.exponential_decay(
-                    learning_rate,
-                    (tf.train.get_global_step() - start_decay_step),
-                    decay_steps, decay_factor, staircase=True),
-                name="learning_rate_decay_cond")
-
-        # learning_rate schema-----------------------------------
-        learning_rate = tf.constant(params.learning_rate)
-        # warm-up
-        learning_rate = get_learning_rate_warmup(params)
-        # decay
-        learning_rate = get_learning_rate_decay(params)
-
-        # return a list of trainable variable in you model, for
-        trainable_params = tf.trainable_variables()
-
-        if FLAGS.optimizer == 'adam':
-            opt = tf.train.AdamOptimizer(learning_rate)
-        elif FLAGS.optimizer == 'sgd':
-            opt = tf.train.GradientDescentOptimizer(learning_rate)
-
-        # compute gradients for params
-        gradients = tf.gradients(loss, trainable_params, colocate_gradients_with_ops=True)
-
-        # process gradients
-        clipped_gradients, norm = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
-        train_op = opt.apply_gradients(zip(clipped_gradients, trainable_params), tf.train.get_global_step())
-
-        # ----------------------------------------------------------------
-        # only use the valuable data, 0 mask the non-valuable data
-        eval_metric_ops = get_eval_metric_ops(tf.argmax(label_one_hot_mask, axis=-1), tf.argmax(predictions, axis=-1),
-                                              tf.squeeze(tgt_seq_mask))
     return tf.estimator.EstimatorSpec(
         mode=mode,
         predictions=predictions,
@@ -569,7 +519,73 @@ def model_fn(features, labels, mode, params):
         eval_metric_ops=eval_metric_ops
     )
 
+def get_train_op(loss, params):
+
+    def get_learning_rate_warmup(hparam):
+        warmup_steps = hparam.warmup_steps
+        warmup_factor = tf.exp(tf.log(0.01) / warmup_steps)
+        inv_decay = warmup_factor ** (
+            tf.to_float(warmup_steps - tf.train.get_global_step()))
+
+        return tf.cond(
+            tf.train.get_global_step() < hparam.warmup_steps,
+            lambda: inv_decay * learning_rate,
+            lambda: learning_rate,
+            name="learning_rate_warump_cond")
+
+    def get_learning_rate_decay(hparam):
+        decay_factor = FLAGS.decay_factor
+        start_decay_step = int(hparam.train_steps * 4 / 5)
+        decay_times = 4
+        remain_steps = hparam.train_steps - start_decay_step
+        decay_steps = int(remain_steps / decay_times)
+
+        return tf.cond(
+            tf.train.get_global_step() < start_decay_step,
+            lambda: learning_rate,
+            lambda: tf.train.exponential_decay(
+                learning_rate,
+                (tf.train.get_global_step() - start_decay_step),
+                decay_steps, decay_factor, staircase=True),
+            name="learning_rate_decay_cond")
+
+    # learning_rate schema-----------------------------------
+    learning_rate = tf.constant(params.learning_rate)
+    # warm-up
+    if FLAGS.lr_warmup:
+        learning_rate = get_learning_rate_warmup(params)
+    # decay
+    if FLAGS.lr_decay:
+        learning_rate = get_learning_rate_decay(params)
+
+    tf.summary.scalar("learning_rate", learning_rate)
+    trainable_params = tf.trainable_variables()
+    opt = None
+    if FLAGS.optimizer == 'adam':
+        opt = tf.train.AdamOptimizer(learning_rate)
+    elif FLAGS.optimizer == 'sgd':
+        opt = tf.train.GradientDescentOptimizer(learning_rate)
+
+    # compute gradients for params
+    gradients = tf.gradients(loss, trainable_params, colocate_gradients_with_ops=True)
+
+    # process gradients
+    clipped_gradients, norm = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
+    train_op = opt.apply_gradients(zip(clipped_gradients, trainable_params), tf.train.get_global_step())
+
+    return train_op
+    # ----------------------------------------------------------------
+
+
 def get_eval_metric_ops(labels, predictions, mask):
+    """Return a dict of the evaluation Ops.
+
+    Args:
+        labels (Tensor): Labels tensor for training and evaluation.
+        predictions (Tensor): Predictions Tensor.
+    Returns:
+        Dict of metric results keyed by name.
+    """
     return {
         'Accuracy': tf.metrics.accuracy(
             labels=labels,
