@@ -265,8 +265,6 @@ def add_Argumets(parser):
                         help="reverse input or not")
     parser.add_argument("--regularization", type="bool", nargs='?', const=True, default=True,
                         help="regularization or not")
-    parser.add_argument("--batch_norm", type="bool", nargs='?', const=True, default=False,
-                        help="batch normalization yes or no")
 
 
 # -----------------------------define the FLAGS parameters for whole model usage.---------------------------------------
@@ -644,19 +642,34 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
     def projection_layer(inputs):
         with tf.variable_scope(name_or_scope='projection_layer', reuse=tf.AUTO_REUSE):
-            inputs = tf.layers.dense(inputs=inputs, units=FLAGS.num_units, activation=None,
+            outputs = normalize(inputs)
+            outputs = tf.layers.dense(inputs=outputs, units=4*FLAGS.num_units, activation=None,
                                       kernel_regularizer=regularizer,
                                       activity_regularizer=regularizer
                                       )
-            outputs = tf.layers.dense(inputs=inputs, units=FLAGS.output_vocab_size, activation=None,
+            outputs = tf.layers.dense(inputs=outputs, units=FLAGS.output_vocab_size, activation=None,
                                       kernel_regularizer=regularizer,
                                       activity_regularizer=regularizer
                                       )
+        return outputs
 
-            if FLAGS.batch_norm:
-                outputs = tf.layers.batch_normalization(inputs=outputs, axis=-1, training=(mode == ModeKeys.TRAIN),
-                                                        beta_regularizer=regularizer,
-                                                        gamma_regularizer=regularizer)
+    def normalize(inputs):
+
+        epsilon = 1e-8
+
+        with tf.variable_scope(name_or_scope='ln', reuse=tf.AUTO_REUSE):
+
+            params_shape = inputs.get_shape().as_list()[-1]
+
+            mean, variance = tf.nn.moments(inputs, [-1], keep_dims=True)
+
+            zeros = lambda: tf.zeros([params_shape], dtype=tf.float32)
+            beta = tf.get_variable('beta', initializer=zeros)
+
+            ones = lambda: tf.ones([params_shape], dtype=tf.float32)
+            gamma = tf.get_variable('gamma', initializer=ones)
+
+            outputs = tf.nn.batch_normalization(inputs, mean, variance, beta, gamma, epsilon)
 
         return outputs
 
