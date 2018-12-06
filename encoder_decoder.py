@@ -2,8 +2,14 @@
 # ----------------------------------------------------------------------------------------------------------------------
 # Author: Huang Ping
 # Date: June 28, 2018
+#
+#
+#                                          ****  MODEL DESCRIPTION  ****
+#                        Bi-directional LSTM in Encoder, Multi Uni-directional LSTM in Decoder.
 # ----------------------------------------------------------------------------------------------------------------------
 
+# the real division operations. if not import division, 5/3=1, if import division, 5/3=1.66666
+# "from __future__  import division" shall be before all the import parts
 from __future__ import division
 
 from six.moves import range
@@ -20,6 +26,7 @@ import logging
 from time import time
 import matplotlib.pyplot as plt
 
+# Show debugging output
 tf.logging.set_verbosity(tf.logging.DEBUG and tf.logging.INFO)
 def log(msg, level=logging.INFO):
     tf.logging.log(level, msg)
@@ -29,8 +36,16 @@ def get_time():
 # ----------------------------------------------------------------------------------------------------------------------
 # -----------------------------------------Global parameters definition-------------------------------------------------
 # here only use "<unk>" to identify the unknown characters and "</s>" to label the "end of sentence"
-UNK = '<unk>'
-EOS = '</s>'
+w_split = False
+
+if w_split:
+    UNK = '<unk>'
+    EOS = '</s>'
+    data_dir = './en_vi/'
+else:
+    UNK = '^'
+    EOS = '#'
+    data_dir = './data/'
 
 UNK_ID = 0
 EOS_ID = 1
@@ -47,7 +62,9 @@ src_max_length, tgt_max_length = 0, 0
 # ----------------------------------------------------------------------------------------------------------------------
 # --------------------------------functions definition for whole program utility----------------------------------------
 
+# define the src and target vocabulary. the table constructed by lookup_ops need to be initialized.
 def create_vocab_tables(src_vocab_file, tgt_vocab_file):
+    # Creates vocab tables for src_vocab_file and tgt_vocab_file.
     src_vocab_table = lookup_ops.index_table_from_file(
         src_vocab_file, default_value=UNK_ID)
 
@@ -57,6 +74,7 @@ def create_vocab_tables(src_vocab_file, tgt_vocab_file):
     return src_vocab_table, tgt_vocab_table
 
 
+# none tensor style vocab and word to id map. for data and image show in prediction stage.
 def np_vocab_processing(vocab_file):
     vocab = []
     vocab_size = 0
@@ -68,6 +86,8 @@ def np_vocab_processing(vocab_file):
     word_2_int_map = {word: index for index, word in enumerate(vocab)}
     return word_2_int_map, vocab, vocab_size
 
+
+# statistic the sentence max length for max_input and max_output parameters definition.
 def max_line_length(file_name):
     max_length = 0
     with open(file_name, "r") as f:
@@ -79,6 +99,9 @@ def max_line_length(file_name):
             if len(content) > max_length:
                 max_length = len(content)
     return max_length
+
+
+# self-defined average_length function for src and tgt average length estimation
 
 def average_length(file_name):
     total_length = 0
@@ -96,6 +119,8 @@ def average_length(file_name):
 
     return round((total_length / item_num) * FLAGS.alpha)
 
+
+# self-defined one_hot function, for data and image show in prediction stage.
 def one_hot(one_data, vocab_size):
     length = len(one_data)
     one_hot_array = np.zeros(shape=(length, vocab_size), dtype=np.float32)
@@ -104,6 +129,7 @@ def one_hot(one_data, vocab_size):
     return one_hot_array
 
 
+# self-defined function to process the one_hot transition for files.
 def en_translation_file_processing(translation_file, seq_length, vocab_size):
     outcome = []
     with open(translation_file, "r") as f:
@@ -125,6 +151,7 @@ def en_translation_file_processing(translation_file, seq_length, vocab_size):
     return outcome
 
 
+# self-defined function to process the one_hot transition for files.
 def de_translation_file_processing(translation_file, seq_length, vocab_size):
     outcome = []
     with open(translation_file, "r") as f:
@@ -146,10 +173,15 @@ def de_translation_file_processing(translation_file, seq_length, vocab_size):
     return outcome
 
 
+# self-defined function for one_hot to word transition based on the vocabulary.
 def en_characters(probabilities):
     return [encoder_vocab[c] for c in np.argmax(probabilities, 1)]
 
+
+# self-defined function for batched one_hot data to string transition.
+# NOTE: the input data shall be of [T,B,V] shape.
 def en_batches2string(batches):
+    """Convert a sequence of batches back into their (most likely) string representation."""
     s = [''] * batches[0].shape[0]
     for b in batches:
         if FLAGS.whitespace_or_nonws_slip:
@@ -160,9 +192,13 @@ def en_batches2string(batches):
     return s
 
 
+# self-defined function for one_hot to word transition based on the vocabulary.
 def de_characters(probabilities):
     return [decoder_vocab[c] for c in np.argmax(probabilities, 1)]
 
+
+# self-defined function for batched one_hot data to string transition.
+# NOTE: the input data shall be of [T,B,V] shape.
 def de_batches2string(batches):
     s = [''] * batches[0].shape[0]
     for b in batches:
@@ -172,6 +208,9 @@ def de_batches2string(batches):
             s = [''.join(x) for x in zip(s, de_characters(b))]
     return s
 
+
+# self-defined function for accuracy in prediction stage.
+# labels and predictions shall be of [T,B,V] shape
 def accuracy(labels, predictions):
     return np.sum(np.argmax(labels, axis=-1) == np.argmax(predictions, axis=-1)) / (labels.shape[0] * labels.shape[1])
 
@@ -182,27 +221,27 @@ def accuracy(labels, predictions):
 
 def add_Argumets(parser):
     parser.register("type", "bool", lambda v: v.lower() == "true")
-    parser.add_argument("--hard_att_model_dir", type=str, default='./encoder_decoder_fix_hard_attention_dir',
+    parser.add_argument("--hard_att_model_dir", type=str, default= data_dir+'hard_model_dir',
                         help='Output directory for hard attention model and training stats.')
-    parser.add_argument("--soft_att_model_dir", type=str, default='./encoder_decoder_fix_soft_attention_dir',
+    parser.add_argument("--soft_att_model_dir", type=str, default= data_dir+'soft_model_dir',
                         help='Output directory for soft attention model and training stats.')
-    parser.add_argument("--train_src_file_path", type=str, default='./data/train_src.txt',
+    parser.add_argument("--train_src_file_path", type=str, default= data_dir + 'train_src.txt',
                         help='training src data path.')
-    parser.add_argument("--train_tgt_file_path", type=str, default='./data/train_tgt.txt',
+    parser.add_argument("--train_tgt_file_path", type=str, default= data_dir + 'train_tgt.txt',
                         help='training tgt data path.')
-    parser.add_argument("--eval_src_file_path", type=str, default='./data/eval_src.txt',
+    parser.add_argument("--eval_src_file_path", type=str, default= data_dir + 'eval_src.txt',
                         help='eval src data path.')
-    parser.add_argument("--eval_tgt_file_path", type=str, default='./data/eval_tgt.txt',
+    parser.add_argument("--eval_tgt_file_path", type=str, default= data_dir + 'eval_tgt.txt',
                         help='eval tgt data path.')
-    parser.add_argument("--infer_src_file_path", type=str, default='./data/infer_src.txt',
+    parser.add_argument("--infer_src_file_path", type=str, default= data_dir + 'infer_src.txt',
                         help='infer src data path.')
-    parser.add_argument("--infer_tgt_file_path", type=str, default='./data/infer_tgt.txt',
+    parser.add_argument("--infer_tgt_file_path", type=str, default= data_dir + 'infer_tgt.txt',
                         help='infer tgt data path.')
-    parser.add_argument("--src_vocab_file_path", type=str, default='./data/vocab_src.txt',
+    parser.add_argument("--src_vocab_file_path", type=str, default= data_dir + 'vocab_src.txt',
                         help='src vocab path.')
-    parser.add_argument("--tgt_vocab_file_path", type=str, default='./data/vocab_tgt.txt',
+    parser.add_argument("--tgt_vocab_file_path", type=str, default= data_dir + 'vocab_tgt.txt',
                         help='tgt vocab path.')
-    parser.add_argument("--batch_size", type=int, default=128,
+    parser.add_argument("--batch_size", type=int, default=64,
                         help='batch size.')
     parser.add_argument("--alpha", type=float, default=1.0,
                         help='average length multiplier ratio.')
@@ -210,15 +249,15 @@ def add_Argumets(parser):
                         help='input vocabulary size.')
     parser.add_argument("--output_vocab_size", type=int, default=0,
                         help='output vocabulary size.')
-    parser.add_argument("--max_input_time_steps", type=int, default=40,
+    parser.add_argument("--max_input_time_steps", type=int, default=0,
                         help='input sequence length.')
-    parser.add_argument("--max_output_time_steps", type=int, default=40,
+    parser.add_argument("--max_output_time_steps", type=int, default=0,
                         help='output sequence length.')
     parser.add_argument("--infer_max_input_time_steps", type=int, default=0,
                         help='input sequence length.')
     parser.add_argument("--infer_max_output_time_steps", type=int, default=0,
                         help='output sequence length.')
-    parser.add_argument("--num_buckets", type=int, default=4,
+    parser.add_argument("--num_buckets", type=int, default=1,
                         help='number of buckets.')
     parser.add_argument("--src_bucket_width", type=int, default=0,
                         help='src_bucket_width.')
@@ -226,9 +265,12 @@ def add_Argumets(parser):
                         help='tgt_bucket_width.')
     parser.add_argument("--dropout", type=float, default=0.2,
                         help="Dropout rate (not keep_prob)")
-    parser.add_argument("--num_units", type=int, default=128,
+    parser.add_argument("--num_units", type=int, default=64,
                         help="hidden node number.")
     # ------------------------------------------------------------------------------------------------------------------
+    # num_layers and bi_or_uni shall be configured together.
+    # if num_layers == 1, then bi_or_uni == False, mean uni-direction.
+    # if num_layers >= 2, then bi_or_uni == True or False.
     parser.add_argument("--num_layers", type=int, default=2,
                         help="layer number.")
     parser.add_argument("--bi_or_uni", type="bool", nargs='?', const=True, default=True,
@@ -237,8 +279,12 @@ def add_Argumets(parser):
     parser.add_argument("--optimizer", type=str, default="adam", help="sgd | adam")
     parser.add_argument("--learning_rate", type=float, default=0.001,
                         help="Learning rate: 1.0 for sgd; Adam: 0.001 | 0.0001")
-    parser.add_argument("--reg_lambda", type=float, default=0.01,
+    parser.add_argument("--decay_factor", type=float, default=0.5,
+                        help="Learning rate decay_factor")
+    parser.add_argument("--reg_lambda", type=float, default=0.001,
                         help="L1 or L2 regularization lambda")
+    parser.add_argument("--train_steps", type=int, default=50000,
+                        help="total training steps")
     parser.add_argument("--warmup_steps", type=int, default=50000,
                         help="How many steps we inverse-decay learning.")
     parser.add_argument("--max_gradient_norm", type=float, default=5.0,
@@ -247,9 +293,13 @@ def add_Argumets(parser):
                         help="windows size in hard attention mode. so 2*win_size+1 steps are considered in")
     parser.add_argument("--beam_size", type=int, default=5,
                         help="beam search width.")
-    parser.add_argument("--whitespace_or_nonws_slip", type="bool", nargs='?', const=True, default=True,
+    parser.add_argument("--lr_warmup", type="bool", nargs='?', const=True, default=False,
+                        help="True means use learning rate warmup schema")
+    parser.add_argument("--lr_decay", type="bool", nargs='?', const=True, default=False,
+                        help="True means use learning rate decay schema")
+    parser.add_argument("--whitespace_or_nonws_slip", type="bool", nargs='?', const=True, default=w_split,
                         help="True means whitespace slip; False means no whitespace slip")
-    parser.add_argument("--fix_or_variable_length", type="bool", nargs='?', const=True, default=False,
+    parser.add_argument("--fix_or_variable_length", type="bool", nargs='?', const=True, default=True,
                         help="True means fixed length; False means variable length")
     parser.add_argument("--beam_search", type="bool", nargs='?', const=True, default=True,
                         help="if beam search or not. True means beam search; False means not")
@@ -263,15 +313,15 @@ def add_Argumets(parser):
                         help="True for residual mode; False for not residual mode")
     parser.add_argument("--reverse_encoder_input", type="bool", nargs='?', const=True, default=False,
                         help="reverse input or not")
-    parser.add_argument("--regularization", type="bool", nargs='?', const=True, default=True,
+    parser.add_argument("--regularization", type="bool", nargs='?', const=True, default=False,
                         help="regularization or not")
 
 
 # -----------------------------define the FLAGS parameters for whole model usage.---------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
-# -----------------------------from here, kick off training, evaluation and prediction----------------------------------
 def run_main(argv=None):
     # 0. ---------------------------------------(re)set or change  FLAGS------------------------------------------------
+
     #   reset partial FLAGS
     if FLAGS.max_input_time_steps == 0 and FLAGS.max_output_time_steps == 0:
         FLAGS.__setattr__('max_input_time_steps', src_max_length)
@@ -296,7 +346,7 @@ def run_main(argv=None):
     # ------------------------------------------------------------------------------------------------------------------
     # 1. ----------------------------------------self-defined HPARAM----------------------------------------------------
     params = tf.contrib.training.HParams(
-        train_steps=50400,  # define training steps
+        train_steps=FLAGS.train_steps,  # define training steps
         min_eval_frequency=200,  # define the evaluation interval
         min_summary_frequency=200,  # define checkpoints save interval
         log_steps=200,  # define the log print out interval
@@ -341,9 +391,9 @@ def run_main(argv=None):
     pred = []
     pred_out = []
     pred_feature = en_translation_file_processing(FLAGS.infer_src_file_path, FLAGS.infer_max_input_time_steps,
-                                                  FLAGS.input_vocab_size)
+                                                  FLAGS.input_vocab_size)  # [B,T,V]
     pred_label = de_translation_file_processing(FLAGS.infer_tgt_file_path, FLAGS.infer_max_output_time_steps,
-                                                FLAGS.output_vocab_size)
+                                                FLAGS.output_vocab_size)  # [B,T,V]
     pred_label = np.transpose(pred_label, [1, 0, 2])  # [T,B,V]
 
     predict_input_fn, pred_input_hook = get_predict_inputs(src=FLAGS.infer_src_file_path,
@@ -359,12 +409,12 @@ def run_main(argv=None):
                                               FLAGS.output_vocab_size + FLAGS.infer_max_input_time_steps]))
             j = 0
             pred = []
+
     pred_out = np.concatenate(pred_out, axis=1)
     pred_data = pred_out[:, :, :FLAGS.output_vocab_size]
     pred_image = pred_out[:, :,
                  FLAGS.output_vocab_size:]
 
-    # self-define function, used to remove '</s>' symbols in the tail of sentence.
     def clean_batch(data):
         out = []
         for each in data:
@@ -405,7 +455,7 @@ def run_main(argv=None):
 
     print("Accuracy:", accuracy(pred_data, pred_label))
     # ---------------------------------------------------Draw-----------------------------------------------------------
-    image_out = np.transpose(pred_image, [1, 0, 2])
+    image_out = np.transpose(pred_image, [1, 0, 2])  # [B,To,Ti]
 
     fig, ax = plt.subplots()
     image_ids = []
@@ -413,14 +463,12 @@ def run_main(argv=None):
     for i in range(len(pred_feature)):
         image_ids.append(random.randint(0, len(pred_feature) - 1))
     for seq_id in image_ids:
-        # only show the '</s>' tail removed sentence.
         if FLAGS.whitespace_or_nonws_slip:
             xlabel = clean_single(en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0]).split()
             ylabel = clean_single(de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0]).split()
         else:
             xlabel = en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0].strip()
             ylabel = de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0].strip()
-
         ax.set_xticks(np.arange(len(xlabel)))
         ax.set_yticks(np.arange(len(ylabel)))
         ax.set_xticklabels(xlabel)
@@ -438,7 +486,8 @@ def run_main(argv=None):
         ax.xaxis.tick_top()
         ax.set_xlabel('Input Sequence ----------->')
         ax.set_ylabel('Output Sequence <-----------')
-        ax.imshow(image_out[seq_id][:len(ylabel), :len(xlabel)] * 255, cmap='Greens', alpha=1)
+        ax.imshow(image_out[seq_id][:len(ylabel), :len(xlabel)] * 255, cmap='Blues', alpha=1)
+
         plt.suptitle(str(seq_id) + ' Sentence', fontsize=10)
         plt.pause(2)
     # -----------------------------------------------------Draw---------------------------------------------------------
@@ -457,7 +506,6 @@ def model_fn(features, labels, mode, params):
     Returns:
         (EstimatorSpec): Model to be run by Estimator.
     """
-    # Loss, training and eval operations are not needed during inference.
     loss = None
     train_op = None
     eval_metric_ops = {}
@@ -472,18 +520,18 @@ def model_fn(features, labels, mode, params):
 
     if mode != ModeKeys.PREDICT:
         features, feature_len = features
-        features = tf.transpose(features)
+        features = tf.transpose(features)  # [T,B]
         labels_in, label_out, label_len = labels
         if FLAGS.fix_or_variable_length:
             tgt_seq_mask = tf.cast(tf.sequence_mask(label_len, FLAGS.max_output_time_steps), tf.float32)  # [B,T]
         else:
             tgt_seq_mask = tf.cast(tf.sequence_mask(label_len), tf.float32)  # [B,T]
         tgt_seq_mask_original = tf.transpose(tgt_seq_mask)  # [T,B]
-        tgt_seq_mask = tf.expand_dims(tgt_seq_mask_original, axis=2)
-        label_one_hot = tf.one_hot(indices=label_out, depth=FLAGS.output_vocab_size, axis=-1)
+        tgt_seq_mask = tf.expand_dims(tgt_seq_mask_original, axis=2)  # [T,B,1]
+        label_one_hot = tf.one_hot(indices=label_out, depth=FLAGS.output_vocab_size, axis=-1)  # [B, T, V]
         label_one_hot = tf.transpose(label_one_hot, (1, 0, 2))  # [T,B,V]
-        label_one_hot_mask = label_one_hot * tgt_seq_mask
-        labels_in = tf.transpose(labels_in)
+        label_one_hot_mask = label_one_hot * tgt_seq_mask  # only use the valuable data, 0 mask the non-valuable data
+        labels_in = tf.transpose(labels_in)  # [T,B]
         logits, softmax = architecture(features, feature_len, labels_in, label_len, mode)
         logits_mask = logits * tgt_seq_mask
         predictions = tf.nn.softmax(logits) * tgt_seq_mask
@@ -494,6 +542,7 @@ def model_fn(features, labels, mode, params):
         if FLAGS.regularization:
             regularizer_loss = FLAGS.reg_lambda * tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
             loss = loss + regularizer_loss
+
         train_op = get_train_op(loss, params)
         eval_metric_ops = get_eval_metric_ops(tf.argmax(label_one_hot_mask, axis=-1), tf.argmax(predictions, axis=-1),
                                               tgt_seq_mask_original)
@@ -519,52 +568,16 @@ def model_fn(features, labels, mode, params):
 
 def get_train_op(loss, params):
 
-    def get_learning_rate_warmup(hparam):
-        warmup_steps = hparam.warmup_steps
-        warmup_factor = tf.exp(tf.log(0.01) / warmup_steps)
-        inv_decay = warmup_factor ** (
-            tf.to_float(warmup_steps - tf.train.get_global_step()))
-
-        return tf.cond(
-            tf.train.get_global_step() < hparam.warmup_steps,
-            lambda: inv_decay * learning_rate,
-            lambda: learning_rate,
-            name="learning_rate_warump_cond")
-
-    def get_learning_rate_decay(hparam):
-        decay_factor = FLAGS.decay_factor
-        start_decay_step = int(hparam.train_steps * 4 / 5)
-        decay_times = 4
-        remain_steps = hparam.train_steps - start_decay_step
-        decay_steps = int(remain_steps / decay_times)
-
-        return tf.cond(
-            tf.train.get_global_step() < start_decay_step,
-            lambda: learning_rate,
-            lambda: tf.train.exponential_decay(
-                learning_rate,
-                (tf.train.get_global_step() - start_decay_step),
-                decay_steps, decay_factor, staircase=True),
-            name="learning_rate_decay_cond")
-
-    # learning_rate schema-----------------------------------
     learning_rate = tf.constant(params.learning_rate)
-    # warm-up
-    if FLAGS.lr_warmup:
-        learning_rate = get_learning_rate_warmup(params)
-    # decay
-    if FLAGS.lr_decay:
-        learning_rate = get_learning_rate_decay(params)
 
-    tf.summary.scalar("learning_rate", learning_rate)
     trainable_params = tf.trainable_variables()
+
     opt = None
     if FLAGS.optimizer == 'adam':
         opt = tf.train.AdamOptimizer(learning_rate)
     elif FLAGS.optimizer == 'sgd':
         opt = tf.train.GradientDescentOptimizer(learning_rate)
 
-    # compute gradients for params
     gradients = tf.gradients(loss, trainable_params, colocate_gradients_with_ops=True)
 
     # process gradients
@@ -594,6 +607,23 @@ def get_eval_metric_ops(labels, predictions, mask):
 
 
 def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode):
+    """Return the output operation following the network architecture.
+
+    Args:
+        encoder_inputs (Tensor): encoder_inputs Tensor
+        feature_len: has length of batch_size tensor, store each feature sample's actual length.
+        feature_sample_len: times of src_bucket_width, uniform the length of each sample in encoder_inputs batch to
+                            src_bucket_width*(feature_id+1)
+        decoder_inputs (Tensor): decoder_inputs Tensor, eg. labels, only used for train and eval stage. None or ignored
+                                 in inference stage.
+        label_len: has length of batch_size tensor, store each label sample's actual length.
+        label_sample_len: times of tgt_bucket_width, uniform the length of each sample in decoder_inputs batch to
+                            tgt_bucket_width*(label_id+1)
+        mode: set by architecture, to identify whether in train, eval or infer stage.
+
+    Returns:
+         Logits output Op for the network. specially in inference stage, the logits is the 'logits' combined with 'softmax'
+    """
 
     regularizer = tf.keras.regularizers.l2(l=FLAGS.reg_lambda)
 
@@ -605,36 +635,34 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
     else:
         src_seq_mask = tf.cast(tf.sequence_mask(encoder_len, FLAGS.infer_max_input_time_steps), tf.float32)  # [B,T]
     src_seq_mask = tf.expand_dims(src_seq_mask, axis=2)  # [B,T,1]
-
-    with tf.variable_scope(name_or_scope="shared_parameters", reuse=tf.AUTO_REUSE,
-                           initializer=tf.orthogonal_initializer()):
+    with tf.variable_scope(name_or_scope="shared_parameters", reuse=tf.AUTO_REUSE):
         # Variables
         fw_ht_hs_weights = tf.get_variable(name="fw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,
-                                                                           0.1),
+                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,0.1),
                                            dtype=tf.float32,
                                            regularizer=regularizer)
         bw_ht_hs_weights = tf.get_variable(name="bw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,
-                                                                           0.1),
+                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,0.1),
                                            dtype=tf.float32,
                                            regularizer=regularizer)
 
         # embedding
         encoding_embedding = tf.get_variable(name='encoding_embedding',
-                                             shape=[FLAGS.input_vocab_size, FLAGS.num_units],
+                                             initializer=tf.truncated_normal([FLAGS.input_vocab_size, FLAGS.num_units],
+                                                                             0.0,
+                                                                             0.1),
                                              dtype=tf.float32)
         decoding_embedding = tf.get_variable(name='decoding_embedding',
-                                             shape=[FLAGS.output_vocab_size, FLAGS.num_units],
+                                             initializer=tf.truncated_normal([FLAGS.output_vocab_size, FLAGS.num_units],
+                                                                             0.0,
+                                                                             0.1),
                                              dtype=tf.float32)
 
-        # hard attetion mode parameters
-        # Weights for the position prediction
         wp_weights = tf.get_variable(name='wp_weights',
                                      initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0, 0.1),
                                      dtype=tf.float32,
                                      regularizer=regularizer)
-        # Weights for the position prediction
+
         vp_weights = tf.get_variable(name='vp_weights',
                                      initializer=tf.truncated_normal([FLAGS.num_units, 1], 0.0, 0.1),
                                      dtype=tf.float32,
@@ -651,6 +679,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                                       kernel_regularizer=regularizer,
                                       activity_regularizer=regularizer
                                       )
+
         return outputs
 
     def normalize(inputs):
@@ -668,7 +697,10 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
             ones = lambda: tf.ones([params_shape], dtype=tf.float32)
             gamma = tf.get_variable('gamma', initializer=ones)
-
+            """
+            normalized = (inputs - mean) / ((variance + epsilon) ** (.5))
+            outputs = gamma * normalized + beta
+            """
             outputs = tf.nn.batch_normalization(inputs, mean, variance, beta, gamma, epsilon)
 
         return outputs
@@ -689,7 +721,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
         # -------------------------------------------------------------------------------------------------------------------
         if FLAGS.num_layers == 1:
-            with tf.variable_scope('encoding_single_rnn', initializer=tf.orthogonal_initializer(), reuse=tf.AUTO_REUSE):
+            with tf.variable_scope(name_or_scope='encoding_single_rnn', reuse=tf.AUTO_REUSE):
                 cell = cell()
                 initial_state = cell.zero_state(tf.shape(input_data)[1], dtype=tf.float32)
                 outputs, state = tf.nn.dynamic_rnn(cell, input_data,
@@ -701,18 +733,16 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         else:
 
             if FLAGS.bi_or_uni:
-
-                with tf.variable_scope('encoding_bi_rnn', initializer=tf.orthogonal_initializer(), reuse=tf.AUTO_REUSE):
+                with tf.variable_scope(name_or_scope='encoding_bi_rnn', reuse=tf.AUTO_REUSE):
                     cell_fw = tf.nn.rnn_cell.MultiRNNCell([cell() for _ in range(FLAGS.num_layers // 2)])
                     cell_bw = tf.nn.rnn_cell.MultiRNNCell([cell() for _ in range(FLAGS.num_layers // 2)])
-
                     outputs, state = tf.nn.bidirectional_dynamic_rnn(
                         cell_fw=cell_fw,
                         cell_bw=cell_bw,
                         inputs=input_data,
+                        sequence_length=input_length,
                         initial_state_fw=cell_fw.zero_state(tf.shape(input_data)[1], dtype=tf.float32),
                         initial_state_bw=cell_bw.zero_state(tf.shape(input_data)[1], dtype=tf.float32),
-                        sequence_length=input_length,
                         dtype=tf.float32,
                         time_major=True)
 
@@ -724,7 +754,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
             # -----------------------------------------------------------------------------------
             else:
-                with tf.variable_scope('encoding_multi_rnn', initializer=tf.orthogonal_initializer(), reuse=tf.AUTO_REUSE):
+                with tf.variable_scope(name_or_scope='encoding_multi_rnn', reuse=tf.AUTO_REUSE):
                     cell = tf.nn.rnn_cell.MultiRNNCell([cell() for _ in range(FLAGS.num_layers)])
 
                     initial_state = cell.zero_state(tf.shape(input_data)[1], dtype=tf.float32)
@@ -754,24 +784,25 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             return rnn_cell
 
         if FLAGS.num_layers == 1:
-            with tf.variable_scope('decoding_single_rnn', initializer=tf.orthogonal_initializer(), reuse=tf.AUTO_REUSE):
+            with tf.variable_scope(name_or_scope='decoding_single_rnn', reuse=tf.AUTO_REUSE):
                 cell = cell()
                 outputs, state = tf.nn.dynamic_rnn(cell, input_data,
                                                    sequence_length=input_length,
                                                    initial_state=init_state,
                                                    time_major=True,
-                                                   dtype=tf.float32)
+                                                   dtype=tf.float32
+                                                   )
 
         else:
             cell = tf.nn.rnn_cell.MultiRNNCell([cell() for _ in range(FLAGS.num_layers)])
             initial_state = init_state
-
-            with tf.variable_scope('decoding_multi_rnn', initializer=tf.orthogonal_initializer(), reuse=tf.AUTO_REUSE):
+            with tf.variable_scope(name_or_scope='decoding_multi_rnn', reuse=tf.AUTO_REUSE):
                 outputs, state = tf.nn.dynamic_rnn(cell, input_data,
                                                    sequence_length=input_length,
                                                    initial_state=initial_state,
                                                    time_major=True,
-                                                   dtype=tf.float32)
+                                                   dtype=tf.float32
+                                                   )
         return outputs, state
 
     def soft_or_hard_attention(hidden_states, current_hidden_state):
@@ -779,25 +810,22 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             fw_hidden_states, bw_hidden_states = hidden_states
         else:
             fw_hidden_states, bw_hidden_states = hidden_states, hidden_states
-        # ----------------------------------Hard Attention Mode Specific Parts------------------------------------------
+            # ----------------------------------Hard Attention Mode Specific Parts------------------------------------------
         gaussian_distribution = None
-        if FLAGS.attention_mode:  # True, means hard attention; False means soft attention
+        if FLAGS.attention_mode:
 
             # local-p  [B,1]
-            p_t_1 = tf.matmul(tf.tanh(tf.matmul(current_hidden_state, wp_weights)), vp_weights)  # [B,1]
+            p_t_1 = tf.matmul(tf.tanh(tf.matmul(current_hidden_state, wp_weights)), vp_weights) # [B,1]
             p_t_2 = tf.sigmoid(p_t_1)
             p_t = tf.to_float(tf.shape(fw_hidden_states)[0]) * p_t_2
             p_t = tf.floor(p_t)
 
             gaussian_distribution = tf.exp(-2.0 * tf.square(p_t - 0.0) / tf.square(FLAGS.predict_window * 1.0))
             gaussian_distribution = tf.expand_dims(gaussian_distribution, axis=0)
-            # gaussian_distribution has shape of [1,B,1]
-            time = tf.constant(1)  # start from 1, because 0 is calculated in above.
-
+            time = tf.constant(1)
             def time_steps(_time, _gaussion):
                 next_gaussion = tf.exp(
                     -2.0 * tf.square(p_t - tf.to_float(_time)) / tf.square(FLAGS.predict_window * 1.0))
-                # next_gaussion has shape of [B, 1]
                 _gaussion = tf.concat([_gaussion, [next_gaussion]], axis=0)  # [time, B, 1]
                 _time += 1
                 return _time, _gaussion
@@ -808,25 +836,27 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                 loop_vars=[time, gaussian_distribution],
                 shape_invariants=[time.get_shape(), tf.TensorShape([None, None, None])]
             )
+
             gaussian_distribution = tf.transpose(gaussian_distribution, [1, 0, 2])  # [B, T, 1]
         # ----------------------------------Hard Attention Mode Specific Parts------------------------------------------
 
         # -------------------------------soft attention and hard attention common parts---------------------------------
+        # [FLAGS.input_time_steps, FLAGS.batch_size, FLAGS.num_units]==>[
+        # FLAGS.batch_size, FLAGS.input_time_steps, FLAGS.num_units]
+        fw_hidden_states_copy = tf.transpose(fw_hidden_states, perm=[1, 0, 2]) # [B,T,H]
+        bw_hidden_states_copy = tf.transpose(bw_hidden_states, perm=[1, 0, 2]) # [B,T,H]
 
-        fw_hidden_states_copy = tf.transpose(fw_hidden_states, perm=[1, 0, 2])
-        bw_hidden_states_copy = tf.transpose(bw_hidden_states, perm=[1, 0, 2])
+        fw_coff = tf.matmul(current_hidden_state, fw_ht_hs_weights)  # [B,H]*[H,H]==>[B,H]
+        bw_coff = tf.matmul(current_hidden_state, bw_ht_hs_weights)  # [B,H]*[H,H]==>[B,H]
 
-        fw_coff = tf.matmul(current_hidden_state, fw_ht_hs_weights)
-        bw_coff = tf.matmul(current_hidden_state, bw_ht_hs_weights)
+        fw_coff = tf.expand_dims(fw_coff, axis=1) # [B,1,H]
+        bw_coff = tf.expand_dims(bw_coff, axis=1) # [B,1,H]
 
-        fw_coff = tf.expand_dims(fw_coff, axis=1)
-        bw_coff = tf.expand_dims(bw_coff, axis=1)
+        fw_hidden_states = tf.transpose(fw_hidden_states, perm=[1, 2, 0])  # [B, H, T]
+        bw_hidden_states = tf.transpose(bw_hidden_states, perm=[1, 2, 0])  # [B, H, T]
 
-        fw_hidden_states = tf.transpose(fw_hidden_states, perm=[1, 2, 0])
-        bw_hidden_states = tf.transpose(bw_hidden_states, perm=[1, 2, 0])
-
-        fw_a_t = tf.transpose(tf.matmul(fw_coff, fw_hidden_states), [0, 2, 1])
-        bw_a_t = tf.transpose(tf.matmul(bw_coff, bw_hidden_states), [0, 2, 1])
+        fw_a_t = tf.transpose(tf.matmul(fw_coff, fw_hidden_states), [0, 2, 1])  # [B, T, 1]
+        bw_a_t = tf.transpose(tf.matmul(bw_coff, bw_hidden_states), [0, 2, 1])  # [B, T, 1]
 
         fw_a_t = tf.exp(fw_a_t) * src_seq_mask
         bw_a_t = tf.exp(bw_a_t) * src_seq_mask
@@ -834,12 +864,11 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         fw_exp_sum = tf.reduce_sum(fw_a_t, axis=1, keepdims=True)
         bw_exp_sum = tf.reduce_sum(bw_a_t, axis=1, keepdims=True)
 
-        fw_softmax = fw_a_t / fw_exp_sum
-        bw_softmax = bw_a_t / bw_exp_sum
-        # --------------------------------------------------------------------------------
+        fw_softmax = fw_a_t / fw_exp_sum  # [B, T, 1]
+        bw_softmax = bw_a_t / bw_exp_sum  # [B, T, 1]
         # ------------------------------soft attention and hard attention common parts----------------------------------
         # ------------------------------------Hard Attention Mode Specific Parts----------------------------------------
-        if FLAGS.attention_mode:  # True, means hard attention; False means soft attention
+        if FLAGS.attention_mode:
             fw_softmax = tf.multiply(fw_softmax, gaussian_distribution)  # [B, T, 1]
             bw_softmax = tf.multiply(bw_softmax, gaussian_distribution)  # [B, T, 1]
         # ------------------------------------Hard Attention Mode Specific Parts----------------------------------------
@@ -870,7 +899,20 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         # --------------------------------soft attention and hard attention common parts--------------------------------
 
     def encoder(input_data, input_len):
+        '''
+        Args:
+
+        input_data : has shape of [T, B, H].
+        init_state: default is None.
+
+        Returns:
+
+        output : Output of LSTM aka Hidden State
+        state : Cell state of the LSTM
+
+        '''
         outputs, state = encoder_lstm_units(input_data=input_data, input_length=input_len)
+
         return outputs, state
 
     def next_word_with_union_prob(input_data, pre_union_probability, hidden_states, context_hidden_combined, state):
@@ -888,6 +930,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             _output = projection_layer(inputs=current_context_hidden_combined + input_data)
         else:
             _output = projection_layer(inputs=current_context_hidden_combined)
+
         _output = tf.nn.softmax(_output)
         _output = tf.multiply(_output, pre_union_probability)
         return _output, current_context_hidden_combined, state, softmax
@@ -905,9 +948,9 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         for i in range(FLAGS.beam_size):
             group_state.append(init_state)
 
-        def getValue(value, pos):
+        def getValue(value, pos): # get [k,B,...] position value.
             first_row = pos[0, :] + 1
-            first_row = tf.diag(first_row)  # leverage diag to get the batch_size.
+            first_row = tf.diag(first_row)
             _, batch_num = tf.nn.top_k(first_row, k=1)
             batch_num = tf.tile([batch_num], [FLAGS.beam_size, 1, 1])  # [k,B,1]
             pos = tf.expand_dims(pos, axis=2)  # [k,B,1]
@@ -920,7 +963,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
             probability = []
             softmax = []
-            top_k_branch_copy = tf.identity(top_k_branch)
+            top_k_branch_copy = tf.identity(top_k_branch)  # [k,B,x]
             group_context_hidden_combined_copy = []
             group_state_copy = []
             softmax_outputs_copy = tf.identity(softmax_outputs)
@@ -930,22 +973,21 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                     top_k_branch[k, :, -1], total_union_probability[k], hidden_states,
                     group_context_hidden_combined[k], group_state[k])
 
-                group_context_hidden_combined_copy.append(_context_hidden_combined_copy)
+                group_context_hidden_combined_copy.append(_context_hidden_combined_copy)  # [.., [B, H]...]
                 group_state_copy.append(_state_copy)
-                probability.append(_output)
-                softmax.append(_softmax)
+                probability.append(_output)  # [[B,V],[B,V],[B,V]...]
+                softmax.append(_softmax)  # [[B,T,1],[B,T,1],...]
 
             probability = tf.stack(probability)  # [K,B,V]
             probability = tf.transpose(probability, [1, 0, 2])  # [B,K,V ]
-            probability = tf.reshape(probability, [-1, FLAGS.beam_size * FLAGS.output_vocab_size])
-            probability_value, probability_pos = tf.nn.top_k(probability, FLAGS.beam_size)
+            probability = tf.reshape(probability, [-1, FLAGS.beam_size * FLAGS.output_vocab_size])  # [B,k*V]
+            probability_value, probability_pos = tf.nn.top_k(probability, FLAGS.beam_size)  # [B,k]
             _group = probability_pos // FLAGS.output_vocab_size  # [B,k]
             _group = tf.transpose(_group)  # [K,B]
             _next_BS_input = probability_pos % FLAGS.output_vocab_size  # [B,k]
             _next_BS_input = tf.transpose(_next_BS_input)  # [K,B]
 
             probability_value = tf.transpose(probability_value)  # [k,B]
-
             top_k_branch = tf.concat(
                 [getValue(top_k_branch_copy, _group), tf.expand_dims(_next_BS_input, axis=2)], axis=-1)  # [K,B,x]
 
@@ -961,11 +1003,14 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             if FLAGS.num_layers == 1:
                 group_state_copy = tf.transpose(group_state_copy, [0,2,1,3]) # [k,B,2,H]
                 group_state = getValue(group_state_copy, _group)  # [k,B,2,H]
-                group_state = tf.transpose(group_state, [0, 2, 1, 3])  # [k,2,B,H]
             else:
 
                 group_state_copy = tf.transpose(group_state_copy, [0, 3, 1, 2, 4])  # [k,B,x,2,H]
                 group_state = getValue(group_state_copy, _group)  # [k,B,x,2,H]
+
+            if FLAGS.num_layers == 1:
+                group_state = tf.transpose(group_state, [0,2,1,3]) # [k,2,B,H]
+            else:
                 group_state = tf.transpose(group_state, [0, 2, 3, 1, 4])  # [k,x,2,B,H]
 
             group_state_temp = []
@@ -989,12 +1034,14 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
     def train_eval_decoder(input_data, hidden_states, init_state):
 
+        # decoder_outputs = []
         softmax_outputs = []
         EOS_tag = input_data[0]
         if FLAGS.bi_or_uni and FLAGS.num_layers >= 2:
             current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[1][0])
         else:
             current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[-1])
+
         if FLAGS.input_att_comb_or_not:
             inp_concat = tf.concat([current_context_hidden_combined, EOS_tag], axis=-1)
         else:
@@ -1039,6 +1086,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             shape_invariants=[time.get_shape(), tf.TensorShape([None, None, FLAGS.num_units]),
                               current_context_hidden_combined.get_shape(), state.get_shape()]
         )
+
         if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
             decoder_outputs += input_data
 
@@ -1058,7 +1106,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             inp_concat = tf.concat([current_context_hidden_combined, EOS_tag], axis=-1)
         else:
             inp_concat = EOS_tag
-        inp_concat = tf.expand_dims(inp_concat, 0)  # [1, B, 2*H]
+        inp_concat = tf.expand_dims(inp_concat, 0)
         outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=init_state)
 
         current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
@@ -1089,11 +1137,11 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                         inp_concat = input_data
                     inp_concat = tf.expand_dims(inp_concat, 0)
                     outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=state)
-
                     current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
+
         decoder_outputs = tf.stack(decoder_outputs)
         softmax_outputs = tf.reshape(softmax_outputs, [FLAGS.infer_max_output_time_steps, -1,
-                                                       FLAGS.infer_max_input_time_steps])  # #(FLAGS.infer_max_output_time_steps, -1, src_max_seq_len)
+                                                       FLAGS.infer_max_input_time_steps])
 
         return decoder_outputs, softmax_outputs
 
@@ -1106,33 +1154,45 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
         decoder_outputs, softmax = train_eval_decoder(label_inputs, outputs, state)
         logits = projection_layer(inputs=decoder_outputs)
-
     else:
         label_EOS = tf.sign(encoder_len)  # EOS_ID
         label_EOS = tf.nn.embedding_lookup(decoding_embedding, label_EOS)  # [B, H]
         logits, softmax = infer_decoder(label_EOS, outputs, state)
+
     return logits, softmax
 
 
 # ----------------------------------------------Define data loaders ----------------------------------------------------
 
 class InitializerHook(tf.train.SessionRunHook):
+    # Hook to initialise data iterator after Session is created.
 
     def __init__(self):
         super(InitializerHook, self).__init__()
         self.initializer_func = None
 
     def after_create_session(self, session, coord):
+        # Initialise the iterator after the session has been created.
         self.initializer_func(session)
 
 
 # Define the training inputs
 def get_train_inputs(src, tgt, batch_size):
-
+    """Return the input function to get the training data.
+    Returns:
+        (Input function, IteratorInitializerHook):
+            - Function that returns (features, labels) when called.
+            - Hook to initialise input iterator.
+    """
     initializer_hook = InitializerHook()
 
     def train_inputs():
+        """Returns training set as Operations.
 
+        Returns:
+            (features, labels) Operations that iterate over the dataset
+            on every training
+        """
         with tf.name_scope('Training_data'):
             src_vocab_table, tgt_vocab_table = create_vocab_tables(FLAGS.src_vocab_file_path, FLAGS.tgt_vocab_file_path)
             src_datasets = tf.data.TextLineDataset(src)
@@ -1207,9 +1267,21 @@ def get_train_inputs(src, tgt, batch_size):
 
 
 def get_eval_inputs(src, tgt, batch_size):
+    """Return the input function to get the eval data.
+    Returns:
+        (Input function, IteratorInitializerHook):
+            - Function that returns (features, labels) when called.
+            - Hook to initialise input iterator.
+    """
     initializer_hook = InitializerHook()
 
     def eval_inputs():
+        """Returns eval set as Operations.
+
+        Returns:
+            (features, labels) Operations that iterate over the dataset
+            on every evaluation
+        """
 
         with tf.name_scope('Eval_data'):
             src_vocab_table, tgt_vocab_table = create_vocab_tables(FLAGS.src_vocab_file_path, FLAGS.tgt_vocab_file_path)
@@ -1286,10 +1358,22 @@ def get_eval_inputs(src, tgt, batch_size):
 
 
 def get_predict_inputs(src, batch_size):
-
+    """Return the input function to get the predict data.
+    Returns:
+        (Input function, IteratorInitializerHook):
+            - Function that returns (features, labels) when called.
+            - Hook to initialise input iterator.
+    """
+    # initializer_hook = pre_InitializerHook()
     initializer_hook = InitializerHook()
 
     def predict_inputs():
+        """Returns prediction set as Operations.
+
+        Returns:
+            features Operations that iterate over the dataset
+            on every inference
+        """
 
         with tf.name_scope('Predict_data'):
             src_vocab_table, tgt_vocab_table = create_vocab_tables(FLAGS.src_vocab_file_path, FLAGS.tgt_vocab_file_path)
@@ -1324,7 +1408,6 @@ def get_predict_inputs(src, batch_size):
 
             iterator = src_datasets.make_initializable_iterator()
             next_feature, feature_len = iterator.get_next()
-
             initializer_hook.initializer_func = lambda sess: sess.run(iterator.initializer)
 
             return tf.concat([next_feature, tf.expand_dims(feature_len, axis=1)], axis=-1)
