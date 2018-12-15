@@ -1,5 +1,6 @@
-<unk>
-</s>
+<PAD>
+</S>
+<UNK>
 Rachel
 :
 The
