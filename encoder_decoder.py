@@ -198,17 +198,17 @@ def add_Argumets(parser):
     parser.add_argument("--soft_att_model_dir", type=str, default= data_dir+'soft_model_dir',
                         help='Output directory for soft attention model and training stats.')
     parser.add_argument("--train_src_file_path", type=str, default= data_dir + 'train_src.txt',
-                        help='training src data path.')
+                        help='training src en_vi path.')
     parser.add_argument("--train_tgt_file_path", type=str, default= data_dir + 'train_tgt.txt',
-                        help='training tgt data path.')
+                        help='training tgt en_vi path.')
     parser.add_argument("--eval_src_file_path", type=str, default= data_dir + 'eval_src.txt',
-                        help='eval src data path.')
+                        help='eval src en_vi path.')
     parser.add_argument("--eval_tgt_file_path", type=str, default= data_dir + 'eval_tgt.txt',
-                        help='eval tgt data path.')
+                        help='eval tgt en_vi path.')
     parser.add_argument("--infer_src_file_path", type=str, default= data_dir + 'infer_src.txt',
-                        help='infer src data path.')
+                        help='infer src en_vi path.')
     parser.add_argument("--infer_tgt_file_path", type=str, default= data_dir + 'infer_tgt.txt',
-                        help='infer tgt data path.')
+                        help='infer tgt en_vi path.')
     parser.add_argument("--src_vocab_file_path", type=str, default= data_dir + 'vocab_src.txt',
                         help='src vocab path.')
     parser.add_argument("--tgt_vocab_file_path", type=str, default= data_dir + 'vocab_tgt.txt',
@@ -1108,7 +1108,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
     return logits, softmax
 
 
-# ----------------------------------------------Define data loaders ----------------------------------------------------
+# ----------------------------------------------Define en_vi loaders ----------------------------------------------------
 
 class InitializerHook(tf.train.SessionRunHook):
 
