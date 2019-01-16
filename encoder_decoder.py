@@ -6,6 +6,7 @@
 #                                          ****  MODEL DESCRIPTION  ****
 #                        Bi-directional LSTM in Encoder, Multi Uni-directional LSTM in Decoder.
 # ----------------------------------------------------------------------------------------------------------------------
+
 from __future__ import division
 
 from six.moves import range
@@ -79,6 +80,7 @@ def np_vocab_processing(vocab_file):
     word_2_int_map = {word: index for index, word in enumerate(vocab)}
     return word_2_int_map, vocab, vocab_size
 
+
 def max_line_length(file_name):
     max_length = 0
     with open(file_name, "r", encoding='UTF-8') as f:
@@ -90,6 +92,7 @@ def max_line_length(file_name):
             if len(content) > max_length:
                 max_length = len(content)
     return max_length
+
 
 def average_length(file_name):
     total_length = 0
@@ -123,7 +126,7 @@ def en_translation_file_processing(translation_file, seq_length, vocab_size):
             else:
                 content = line.strip()
             feature_vector = list(map(lambda word: encoder_word_int_map.get(word, UNK_ID), content))
-            feature_temp = np.full((seq_length), PAD_ID, np.int32)
+            feature_temp = np.full((seq_length), PAD_ID, np.int32)  # full fill with PAD_ID
             if len(feature_vector) > (seq_length - 1):
                 feature_temp[:(seq_length - 1)] = feature_vector[:(seq_length - 1)]
                 feature_temp[(seq_length - 1)] = EOS_ID
@@ -143,7 +146,7 @@ def de_translation_file_processing(translation_file, seq_length, vocab_size):
             else:
                 content = line.strip()
             feature_vector = list(map(lambda word: decoder_word_int_map.get(word, UNK_ID), content))
-            feature_temp = np.full((seq_length), PAD_ID, np.int32)
+            feature_temp = np.full((seq_length), PAD_ID, np.int32)  # full fill with PAD_ID
             if len(feature_vector) > (seq_length - 1):
                 feature_temp[:(seq_length - 1)] = feature_vector[:(seq_length - 1)]
                 feature_temp[(seq_length - 1)] = EOS_ID
@@ -153,7 +156,6 @@ def de_translation_file_processing(translation_file, seq_length, vocab_size):
             feature_one_hot = one_hot(feature_temp, vocab_size)
             outcome.append(feature_one_hot)  # [B,T,V]
     return outcome
-
 
 def en_characters(probabilities):
     return [encoder_vocab[c] for c in np.argmax(probabilities, 1)]
@@ -219,15 +221,15 @@ def add_Argumets(parser):
                         help='input vocabulary size.')
     parser.add_argument("--output_vocab_size", type=int, default=0,
                         help='output vocabulary size.')
-    parser.add_argument("--max_input_time_steps", type=int, default=0,
+    parser.add_argument("--max_input_time_steps", type=int, default=50,
                         help='input sequence length.')
-    parser.add_argument("--max_output_time_steps", type=int, default=0,
+    parser.add_argument("--max_output_time_steps", type=int, default=60,
                         help='output sequence length.')
     parser.add_argument("--infer_max_input_time_steps", type=int, default=0,
                         help='input sequence length.')
     parser.add_argument("--infer_max_output_time_steps", type=int, default=0,
                         help='output sequence length.')
-    parser.add_argument("--num_buckets", type=int, default=1,
+    parser.add_argument("--num_buckets", type=int, default=5,
                         help='number of buckets.')
     parser.add_argument("--src_bucket_width", type=int, default=0,
                         help='src_bucket_width.')
@@ -235,10 +237,13 @@ def add_Argumets(parser):
                         help='tgt_bucket_width.')
     parser.add_argument("--dropout", type=float, default=0.2,
                         help="Dropout rate (not keep_prob)")
-    parser.add_argument("--num_units", type=int, default=64,
+    parser.add_argument("--num_units", type=int, default=512,
                         help="hidden node number.")
     # ------------------------------------------------------------------------------------------------------------------
-    parser.add_argument("--num_layers", type=int, default=2,
+    # num_layers and bi_or_uni shall be configured together.
+    # if num_layers == 1, then bi_or_uni == False, mean uni-direction.
+    # if num_layers >= 2, then bi_or_uni == True or False.
+    parser.add_argument("--num_layers", type=int, default=4,
                         help="layer number.")
     parser.add_argument("--bi_or_uni", type="bool", nargs='?', const=True, default=True,
                         help="True means bi-direction; False means uni-direction")
@@ -289,7 +294,6 @@ def add_Argumets(parser):
 # -----------------------------from here, kick off training, evaluation and prediction----------------------------------
 def run_main(argv=None):
     # 0. ---------------------------------------(re)set or change  FLAGS------------------------------------------------
-
     #   reset partial FLAGS
     if FLAGS.max_input_time_steps == 0 and FLAGS.max_output_time_steps == 0:
         FLAGS.__setattr__('max_input_time_steps', src_max_length)
@@ -314,16 +318,15 @@ def run_main(argv=None):
     # ------------------------------------------------------------------------------------------------------------------
     # 1. ----------------------------------------self-defined HPARAM----------------------------------------------------
     params = tf.contrib.training.HParams(
-        train_steps=FLAGS.train_steps,  # define training steps
-        min_eval_frequency=200,  # define the evaluation interval
-        min_summary_frequency=200,  # define checkpoints save interval
-        log_steps=200,  # define the log print out interval
-        learning_rate=FLAGS.learning_rate,  # define learning rate
-        warmup_steps=FLAGS.warmup_steps  # define the learning_rate warmup steps
+        train_steps=FLAGS.train_steps,
+        min_eval_frequency=200,
+        min_summary_frequency=200,
+        log_steps=200,
+        learning_rate=FLAGS.learning_rate,
+        warmup_steps=FLAGS.warmup_steps
     )
     # ------------------------------------------------------------------------------------------------------------------
     # 2. ----------------------------define the training and evaluation env parameters----------------------------------
-
     run_config = tf.estimator.RunConfig()
     run_config = run_config.replace(
         model_dir=FLAGS.hard_att_model_dir if FLAGS.attention_mode else FLAGS.soft_att_model_dir,
@@ -376,6 +379,7 @@ def run_main(argv=None):
                                               FLAGS.output_vocab_size + FLAGS.infer_max_input_time_steps]))
             j = 0
             pred = []
+
     pred_out = np.concatenate(pred_out, axis=1)
     pred_data = pred_out[:, :, :FLAGS.output_vocab_size]
     pred_image = pred_out[:, :,
@@ -397,10 +401,7 @@ def run_main(argv=None):
             else:
                 each_temp = ''
                 for i in each:
-                    if i != EOS:
-                        each_temp += i
-                    else:
-                        break
+                    each_temp += i
                 each_temp = each_temp.strip()
                 out.append(each_temp)
 
@@ -419,10 +420,7 @@ def run_main(argv=None):
         else:
             each_temp = ''
             for i in data:
-                if i != EOS:
-                    each_temp += i
-                else:
-                    break
+                each_temp += i
             out = each_temp.strip()
         return out
 
@@ -438,15 +436,20 @@ def run_main(argv=None):
 
     print("Accuracy:", accuracy(pred_data, pred_label))
     # ---------------------------------------------------Draw-----------------------------------------------------------
-    image_out = np.transpose(pred_image, [1, 0, 2])
+    image_out = np.transpose(pred_image, [1, 0, 2])  # [B,To,Ti]
 
     fig, ax = plt.subplots()
     image_ids = []
+    # generate the random show image batch_id list.
     for i in range(len(pred_feature)):
         image_ids.append(random.randint(0, len(pred_feature) - 1))
     for seq_id in image_ids:
-        xlabel = clean_single(en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0]).split()
-        ylabel = clean_single(de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0]).split()
+        if FLAGS.whitespace_or_nonws_slip:
+            xlabel = clean_single(en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0]).split()
+            ylabel = clean_single(de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0]).split()
+        else:
+            xlabel = clean_single(en_batches2string(np.expand_dims(pred_feature[seq_id], axis=1))[0])
+            ylabel = clean_single(de_batches2string(np.expand_dims(pred_data[:, seq_id, :], axis=1))[0])
         ax.set_xticks(np.arange(len(xlabel)))
         ax.set_yticks(np.arange(len(ylabel)))
         ax.set_xticklabels(xlabel)
@@ -489,18 +492,19 @@ def model_fn(features, labels, mode, params):
         features = tf.transpose(features)
         labels_in, label_out, label_len = labels
         if FLAGS.fix_or_variable_length:
-            tgt_seq_mask = tf.cast(tf.sequence_mask(label_len, FLAGS.max_output_time_steps), tf.float32)
+            tgt_seq_mask = tf.cast(tf.sequence_mask(label_len, FLAGS.max_output_time_steps), tf.float32)  # [B,T]
         else:
-            tgt_seq_mask = tf.cast(tf.sequence_mask(label_len), tf.float32)
-        tgt_seq_mask_original = tf.transpose(tgt_seq_mask)
-        tgt_seq_mask = tf.expand_dims(tgt_seq_mask_original, axis=2)
-        label_one_hot = tf.one_hot(indices=label_out, depth=FLAGS.output_vocab_size, axis=-1)
-        label_one_hot = tf.transpose(label_one_hot, (1, 0, 2))
+            tgt_seq_mask = tf.cast(tf.sequence_mask(label_len), tf.float32)  # [B,T]
+        tgt_seq_mask_original = tf.transpose(tgt_seq_mask)  # [T,B]
+        tgt_seq_mask = tf.expand_dims(tgt_seq_mask_original, axis=2)  # [T,B,1]
+        label_one_hot = tf.one_hot(indices=label_out, depth=FLAGS.output_vocab_size, axis=-1)  # [B, T, V]
+        label_one_hot = tf.transpose(label_one_hot, (1, 0, 2))  # [T,B,V]
         label_one_hot_mask = label_one_hot * tgt_seq_mask
-        labels_in = tf.transpose(labels_in)
+        labels_in = tf.transpose(labels_in)  # [T,B]
         logits, softmax = architecture(features, feature_len, labels_in, label_len, mode)
         logits_mask = logits * tgt_seq_mask
         predictions = tf.nn.softmax(logits) * tgt_seq_mask
+
         loss = tf.nn.softmax_cross_entropy_with_logits_v2(
             labels=label_smoothing(label_one_hot_mask, FLAGS.label_smooth), logits=logits_mask)
         loss = tf.reduce_sum(loss) / tf.count_nonzero(tgt_seq_mask, dtype=tf.float32)
@@ -514,7 +518,7 @@ def model_fn(features, labels, mode, params):
     else:
         feature_len = features[:, -1]
         features = features[:, :-1]
-        features = tf.transpose(features)
+        features = tf.transpose(features)  # [B,T]-->[T,B]
         labels_in = None
         label_len = None
         logits, softmax = architecture(features, feature_len, labels_in, label_len, mode)
@@ -532,7 +536,6 @@ def model_fn(features, labels, mode, params):
     )
 
 def get_train_op(loss, params):
-
     def get_learning_rate_warmup(hparam):
         warmup_steps = hparam.warmup_steps
         warmup_factor = tf.exp(tf.log(0.01) / warmup_steps)
@@ -562,16 +565,13 @@ def get_train_op(loss, params):
             name="learning_rate_decay_cond")
 
     learning_rate = tf.constant(params.learning_rate)
-    # warm-up
     if FLAGS.lr_warmup:
         learning_rate = get_learning_rate_warmup(params)
-    # decay
     if FLAGS.lr_decay:
         learning_rate = get_learning_rate_decay(params)
 
     tf.summary.scalar("learning_rate", learning_rate)
     trainable_params = tf.trainable_variables()
-
     opt = None
     if FLAGS.optimizer == 'adam':
         opt = tf.train.AdamOptimizer(learning_rate)
@@ -579,14 +579,11 @@ def get_train_op(loss, params):
         opt = tf.train.GradientDescentOptimizer(learning_rate)
 
     gradients = tf.gradients(loss, trainable_params, colocate_gradients_with_ops=True)
-
-    # process gradients
     clipped_gradients, norm = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
     train_op = opt.apply_gradients(zip(clipped_gradients, trainable_params), tf.train.get_global_step())
 
     return train_op
     # ----------------------------------------------------------------
-
 def get_eval_metric_ops(labels, predictions, mask):
 
     return {
@@ -609,51 +606,52 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             src_seq_mask = tf.cast(tf.sequence_mask(encoder_len), tf.float32)  # [B,T]
     else:
         src_seq_mask = tf.cast(tf.sequence_mask(encoder_len, FLAGS.infer_max_input_time_steps), tf.float32)  # [B,T]
-    src_seq_mask = tf.expand_dims(src_seq_mask, axis=2)
+    src_seq_mask = tf.expand_dims(src_seq_mask, axis=2)  # [B,T,1]
     with tf.variable_scope(name_or_scope="shared_parameters", reuse=tf.AUTO_REUSE):
-        # Variables
         fw_ht_hs_weights = tf.get_variable(name="fw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,0.1),
+                                           shape=[FLAGS.num_units, FLAGS.num_units],
                                            dtype=tf.float32,
+                                           initializer=tf.variance_scaling_initializer(),
                                            regularizer=regularizer)
         bw_ht_hs_weights = tf.get_variable(name="bw_ht_hs_weights",
-                                           initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0,0.1),
+                                           shape=[FLAGS.num_units, FLAGS.num_units],
                                            dtype=tf.float32,
+                                           initializer=tf.variance_scaling_initializer(),
                                            regularizer=regularizer)
 
         # embedding
         encoding_embedding = tf.get_variable(name='encoding_embedding',
-                                             initializer=tf.truncated_normal([FLAGS.input_vocab_size, FLAGS.num_units],
-                                                                             0.0,
-                                                                             0.1),
-                                             dtype=tf.float32)
+                                             shape=[FLAGS.input_vocab_size, FLAGS.num_units],
+                                             dtype=tf.float32,
+                                             initializer=tf.variance_scaling_initializer())
         decoding_embedding = tf.get_variable(name='decoding_embedding',
-                                             initializer=tf.truncated_normal([FLAGS.output_vocab_size, FLAGS.num_units],
-                                                                             0.0,
-                                                                             0.1),
-                                             dtype=tf.float32)
+                                             shape=[FLAGS.output_vocab_size, FLAGS.num_units],
+                                             dtype=tf.float32,
+                                             initializer=tf.variance_scaling_initializer())
 
         wp_weights = tf.get_variable(name='wp_weights',
-                                     initializer=tf.truncated_normal([FLAGS.num_units, FLAGS.num_units], 0.0, 0.1),
+                                     shape=[FLAGS.num_units, FLAGS.num_units],
                                      dtype=tf.float32,
+                                     initializer=tf.variance_scaling_initializer(),
                                      regularizer=regularizer)
+
         vp_weights = tf.get_variable(name='vp_weights',
-                                     initializer=tf.truncated_normal([FLAGS.num_units, 1], 0.0, 0.1),
+                                     shape=[FLAGS.num_units, 1],
                                      dtype=tf.float32,
+                                     initializer=tf.variance_scaling_initializer(),
                                      regularizer=regularizer)
 
     def projection_layer(inputs):
         with tf.variable_scope(name_or_scope='projection_layer', reuse=tf.AUTO_REUSE):
             outputs = normalize(inputs)
-            outputs = tf.layers.dense(inputs=outputs, units=4*FLAGS.num_units, activation=None,
+            outputs = tf.layers.dense(inputs=outputs, units=4*FLAGS.num_units, activation=None, name='l1',
                                       kernel_regularizer=regularizer,
                                       activity_regularizer=regularizer
                                       )
-            outputs = tf.layers.dense(inputs=outputs, units=FLAGS.output_vocab_size, activation=None,
+            outputs = tf.layers.dense(inputs=outputs, units=FLAGS.output_vocab_size, activation=None, name='l2',
                                       kernel_regularizer=regularizer,
                                       activity_regularizer=regularizer
                                       )
-
         return outputs
 
     def normalize(inputs):
@@ -671,10 +669,6 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
             ones = lambda: tf.ones([params_shape], dtype=tf.float32)
             gamma = tf.get_variable('gamma', initializer=ones)
-            """
-            normalized = (inputs - mean) / ((variance + epsilon) ** (.5))
-            outputs = gamma * normalized + beta
-            """
             outputs = tf.nn.batch_normalization(inputs, mean, variance, beta, gamma, epsilon)
 
         return outputs
@@ -692,7 +686,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             if FLAGS.residual_mode:
                 rnn_cell = tf.nn.rnn_cell.ResidualWrapper(cell=rnn_cell)
             return rnn_cell
-
+        # -------------------------------------------------------------------------------------------------------------------
         if FLAGS.num_layers == 1:
             with tf.variable_scope(name_or_scope='encoding_single_rnn', reuse=tf.AUTO_REUSE):
                 cell = cell()
@@ -783,7 +777,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             fw_hidden_states, bw_hidden_states = hidden_states
         else:
             fw_hidden_states, bw_hidden_states = hidden_states, hidden_states
-            # ----------------------------------Hard Attention Mode Specific Parts--------------------------------------
+            # ----------------------------------Hard Attention Mode Specific Parts------------------------------------------
         gaussian_distribution = None
         if FLAGS.attention_mode:  # True, means hard attention; False means soft attention
 
@@ -796,7 +790,6 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             gaussian_distribution = tf.exp(-2.0 * tf.square(p_t - 0.0) / tf.square(FLAGS.predict_window * 1.0))
             gaussian_distribution = tf.expand_dims(gaussian_distribution, axis=0)
             time = tf.constant(1)
-
             def time_steps(_time, _gaussion):
                 next_gaussion = tf.exp(
                     -2.0 * tf.square(p_t - tf.to_float(_time)) / tf.square(FLAGS.predict_window * 1.0))
@@ -814,6 +807,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         # ----------------------------------Hard Attention Mode Specific Parts------------------------------------------
 
         # -------------------------------soft attention and hard attention common parts---------------------------------
+
         fw_hidden_states_copy = tf.transpose(fw_hidden_states, perm=[1, 0, 2]) # [B,T,H]
         bw_hidden_states_copy = tf.transpose(bw_hidden_states, perm=[1, 0, 2]) # [B,T,H]
 
@@ -828,8 +822,6 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
         fw_a_t = tf.transpose(tf.matmul(fw_coff, fw_hidden_states), [0, 2, 1])  # [B, T, 1]
         bw_a_t = tf.transpose(tf.matmul(bw_coff, bw_hidden_states), [0, 2, 1])  # [B, T, 1]
-
-        # --------------------------------------------------------------------------------
         fw_a_t = tf.exp(fw_a_t) * src_seq_mask
         bw_a_t = tf.exp(bw_a_t) * src_seq_mask
 
@@ -838,10 +830,9 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
         fw_softmax = fw_a_t / fw_exp_sum  # [B, T, 1]
         bw_softmax = bw_a_t / bw_exp_sum  # [B, T, 1]
-        # --------------------------------------------------------------------------------
         # ------------------------------soft attention and hard attention common parts----------------------------------
         # ------------------------------------Hard Attention Mode Specific Parts----------------------------------------
-        if FLAGS.attention_mode:
+        if FLAGS.attention_mode:  # True, means hard attention; False means soft attention
             fw_softmax = tf.multiply(fw_softmax, gaussian_distribution)  # [B, T, 1]
             bw_softmax = tf.multiply(bw_softmax, gaussian_distribution)  # [B, T, 1]
         # ------------------------------------Hard Attention Mode Specific Parts----------------------------------------
@@ -850,9 +841,13 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         bw_context = tf.reduce_sum(tf.multiply(bw_softmax, bw_hidden_states_copy), axis=1)  # output shape: [B, H]
 
         if FLAGS.bi_or_uni and FLAGS.num_layers >=2:
-            current_context_hidden_combined = tf.concat([fw_context, bw_context, current_hidden_state], axis=-1)
+            context = (fw_context + bw_context) / 2.0
+            softmax = (fw_softmax + bw_softmax) / 2.0
         else:
-            current_context_hidden_combined = tf.concat([fw_context, current_hidden_state], axis=-1)
+            context = fw_context
+            softmax = fw_softmax
+
+        current_context_hidden_combined = tf.concat([current_hidden_state, context], axis=-1)
 
         with tf.variable_scope(name_or_scope="attention_dense", reuse=tf.AUTO_REUSE):
             current_context_hidden_combined = tf.layers.dense(
@@ -860,56 +855,51 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                 units=FLAGS.num_units,
                 activation=tf.tanh,
                 kernel_initializer=tf.orthogonal_initializer,
-                kernel_regularizer=regularizer
+                kernel_regularizer=regularizer,
+                name='al'
             )
 
-        if FLAGS.bi_or_uni and FLAGS.num_layers >=2:
-            softmax = (fw_softmax + bw_softmax)/2.0
-        else:
-            softmax = fw_softmax
-
-        return current_context_hidden_combined, softmax
+        return current_context_hidden_combined, softmax, context
         # --------------------------------soft attention and hard attention common parts--------------------------------
 
     def encoder(input_data, input_len):
         outputs, state = encoder_lstm_units(input_data=input_data, input_length=input_len)
         return outputs, state
 
-    def next_word_with_union_prob(input_data, pre_union_probability, hidden_states, context_hidden_combined, state):
+    def next_word_with_union_prob(input_data, pre_union_probability, hidden_states, context, state):
 
         input_data = tf.nn.embedding_lookup(decoding_embedding, input_data)  # [B, H]
         if FLAGS.input_att_comb_or_not:
-            inp_concat = tf.concat([context_hidden_combined, input_data], axis=-1)
+            inp_concat = tf.concat([input_data, context], axis=-1)
         else:
             inp_concat = input_data
         inp_concat = tf.expand_dims(inp_concat, 0)
         outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=state)
 
-        current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
+        current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, outputs[-1])
         if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
             _output = projection_layer(inputs=current_context_hidden_combined + input_data)
         else:
             _output = projection_layer(inputs=current_context_hidden_combined)
         _output = tf.nn.softmax(_output)
         _output = tf.multiply(_output, pre_union_probability)
-        return _output, current_context_hidden_combined, state, softmax
+        return _output, context, state, softmax
 
-    def beam_search(input_data, hidden_states, current_context_hidden_combined, init_state, softmax):
+    def beam_search(input_data, hidden_states, context, init_state, softmax):
 
         group_state = []
-        # [B, k]
         topk_probability_value, topk_probability_pos = tf.nn.top_k(input_data, FLAGS.beam_size)
 
         top_k_branch = tf.transpose(tf.expand_dims(topk_probability_pos, axis=2), [1, 0, 2])  # [k,B,x]
         total_union_probability = tf.transpose(tf.expand_dims(topk_probability_value, axis=2), [1, 0, 2])  # [k,B,1]
-        group_context_hidden_combined = tf.tile([current_context_hidden_combined], [FLAGS.beam_size, 1, 1])  # [k,B,H]
+        group_context = tf.tile([context], [FLAGS.beam_size, 1, 1])  # [k,B,H]
         softmax_outputs = tf.tile([softmax], [FLAGS.beam_size, 1, 1, 1])  # [k,B,T,x]
         for i in range(FLAGS.beam_size):
             group_state.append(init_state)
 
-        def getValue(value, pos): # get [k,B,...] position value.
+        def getValue(value, pos):
             first_row = pos[0, :] + 1
-            first_row = tf.diag(first_row)  # leverage diag to get the batch_size.
+            first_row = tf.diag(first_row)
             _, batch_num = tf.nn.top_k(first_row, k=1)
             batch_num = tf.tile([batch_num], [FLAGS.beam_size, 1, 1])  # [k,B,1]
             pos = tf.expand_dims(pos, axis=2)  # [k,B,1]
@@ -923,16 +913,16 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             probability = []
             softmax = []
             top_k_branch_copy = tf.identity(top_k_branch)  # [k,B,x]
-            group_context_hidden_combined_copy = []
+            group_context_copy = []
             group_state_copy = []
             softmax_outputs_copy = tf.identity(softmax_outputs)
 
             for k in range(FLAGS.beam_size):
-                _output, _context_hidden_combined_copy, _state_copy, _softmax = next_word_with_union_prob(
+                _output, _context_copy, _state_copy, _softmax = next_word_with_union_prob(
                     top_k_branch[k, :, -1], total_union_probability[k], hidden_states,
-                    group_context_hidden_combined[k], group_state[k])
+                    group_context[k], group_state[k])
 
-                group_context_hidden_combined_copy.append(_context_hidden_combined_copy)  # [.., [B, H]...]
+                group_context_copy.append(_context_copy)  # [.., [B, H]...]
                 group_state_copy.append(_state_copy)
                 probability.append(_output)  # [[B,V],[B,V],[B,V]...]
                 softmax.append(_softmax)  # [[B,T,1],[B,T,1],...]
@@ -955,7 +945,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
             total_union_probability = tf.expand_dims(probability_value, axis=2)  # [k,B,1]
 
-            group_context_hidden_combined = getValue(group_context_hidden_combined_copy, _group)  # [k,B,H]
+            group_context = getValue(group_context_copy, _group)  # [k,B,H]
 
             group_state_copy = tf.stack(group_state_copy)
 
@@ -966,6 +956,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
 
                 group_state_copy = tf.transpose(group_state_copy, [0, 3, 1, 2, 4])  # [k,B,x,2,H]
                 group_state = getValue(group_state_copy, _group)  # [k,B,x,2,H]
+
             if FLAGS.num_layers == 1:
                 group_state = tf.transpose(group_state, [0,2,1,3]) # [k,2,B,H]
             else:
@@ -995,25 +986,25 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         softmax_outputs = []
         EOS_tag = input_data[0]
         if FLAGS.bi_or_uni and FLAGS.num_layers >= 2:
-            current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[1][0])
+            current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, hidden_states[1][0])
         else:
-            current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[-1])
+            current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, hidden_states[-1])
 
         if FLAGS.input_att_comb_or_not:
-            inp_concat = tf.concat([current_context_hidden_combined, EOS_tag], axis=-1)
+            inp_concat = tf.concat([EOS_tag, tf.zeros_like(context, dtype=tf.float32)], axis=-1)
         else:
             inp_concat = EOS_tag
         inp_concat = tf.expand_dims(inp_concat, 0)  # [1, B, 2*H] or [1, B, H]
         outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=init_state)
 
-        current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
+        current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, outputs[-1])
         decoder_outputs = tf.expand_dims(current_context_hidden_combined, axis=0)
 
         state= tf.stack(state)
 
         time = tf.constant(1)
 
-        def time_steps(_time, _out, _cchc, _state):
+        def time_steps(_time, _out, _cchc, _context, _state):
             if FLAGS.num_layers == 1:
                 _state = tf.nn.rnn_cell.LSTMStateTuple(c=_state[0], h=_state[1])
             else:
@@ -1023,25 +1014,25 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                 _state = tuple(_state_)
 
             if FLAGS.input_att_comb_or_not:
-                inp_concat = tf.concat([_cchc, input_data[_time]], axis=-1)
+                inp_concat = tf.concat([input_data[_time], _context], axis=-1)
             else:
                 inp_concat = input_data[_time]
             inp_concat = tf.expand_dims(inp_concat, 0)
             _outputs, _state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=_state)
 
-            current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, _outputs[-1])
+            current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, _outputs[-1])
 
             _out = tf.concat([_out, [current_context_hidden_combined]], axis=0)
             _state = tf.stack(_state)
             _time += 1
-            return _time, _out, current_context_hidden_combined, _state
+            return _time, _out, current_context_hidden_combined, context, _state
 
-        _, decoder_outputs, _, _ = tf.while_loop(
+        _, decoder_outputs, _, _, _ = tf.while_loop(
             cond=lambda time, *_: time < tf.shape(input_data)[0],
             body=time_steps,
-            loop_vars=[time, decoder_outputs, current_context_hidden_combined, state],
+            loop_vars=[time, decoder_outputs, current_context_hidden_combined, context, state],
             shape_invariants=[time.get_shape(), tf.TensorShape([None, None, FLAGS.num_units]),
-                              current_context_hidden_combined.get_shape(), state.get_shape()]
+                              current_context_hidden_combined.get_shape(), context.get_shape(), state.get_shape()]
         )
         if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
             decoder_outputs += input_data
@@ -1054,18 +1045,18 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
         softmax_outputs = []
         EOS_tag = input_data
         if FLAGS.bi_or_uni and FLAGS.num_layers >= 2:
-            current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[1][0])
+            current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, hidden_states[1][0])
         else:
-            current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, hidden_states[-1])
+            current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, hidden_states[-1])
 
         if FLAGS.input_att_comb_or_not:
-            inp_concat = tf.concat([current_context_hidden_combined, EOS_tag], axis=-1)
+            inp_concat = tf.concat([EOS_tag, tf.zeros_like(context, dtype=tf.float32)], axis=-1)
         else:
             inp_concat = EOS_tag
-        inp_concat = tf.expand_dims(inp_concat, 0)
+        inp_concat = tf.expand_dims(inp_concat, 0)  # # [1, B, 2*H] or [1, B, H]
         outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=init_state)
 
-        current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
+        current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, outputs[-1])
 
         if FLAGS.beam_search:
             if FLAGS.residual_mode and FLAGS.input_att_comb_or_not:
@@ -1073,8 +1064,7 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
             else:
                 _output = projection_layer(inputs=current_context_hidden_combined)
             _output = tf.nn.softmax(_output)
-            decoder_outputs, softmax_outputs = beam_search(_output, hidden_states, current_context_hidden_combined,
-                                                           state, softmax)
+            decoder_outputs, softmax_outputs = beam_search(_output, hidden_states, context, state, softmax)
 
         else:
             for i in trange(FLAGS.infer_max_output_time_steps):
@@ -1088,12 +1078,12 @@ def architecture(encoder_inputs, encoder_len, decoder_inputs, decoder_len, mode)
                     _output = tf.nn.softmax(_output)
                     input_data = tf.nn.embedding_lookup(decoding_embedding, tf.argmax(_output, axis=-1))
                     if FLAGS.input_att_comb_or_not:
-                        inp_concat = tf.concat([current_context_hidden_combined, input_data], axis=-1)
+                        inp_concat = tf.concat([input_data, context], axis=-1)
                     else:
                         inp_concat = input_data
                     inp_concat = tf.expand_dims(inp_concat, 0)
                     outputs, state = decoder_lstm_units(input_data=inp_concat, input_length=None, init_state=state)
-                    current_context_hidden_combined, softmax = soft_or_hard_attention(hidden_states, outputs[-1])
+                    current_context_hidden_combined, softmax, context = soft_or_hard_attention(hidden_states, outputs[-1])
 
         decoder_outputs = tf.stack(decoder_outputs)
         softmax_outputs = tf.reshape(softmax_outputs, [FLAGS.infer_max_output_time_steps, -1,
@@ -1134,7 +1124,6 @@ def get_train_inputs(src, tgt, batch_size):
     initializer_hook = InitializerHook()
 
     def train_inputs():
-
         with tf.name_scope('Training_data'):
             src_vocab_table, tgt_vocab_table = create_vocab_tables(FLAGS.src_vocab_file_path, FLAGS.tgt_vocab_file_path)
             src_datasets = tf.data.TextLineDataset(src)
@@ -1146,6 +1135,7 @@ def get_train_inputs(src, tgt, batch_size):
             else:
                 src_tgt_datasets = src_tgt_datasets.map(lambda src, tgt: (
                     tf.string_split([src], delimiter='').values, tf.string_split([tgt], delimiter='').values))
+
             src_tgt_datasets = src_tgt_datasets.filter(
                 lambda src, tgt: tf.logical_and(tf.size(src) > 0, tf.size(tgt) > 0))
 
@@ -1195,11 +1185,12 @@ def get_train_inputs(src, tgt, batch_size):
                 tf.data.experimental.group_by_window(
                     key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
 
-            batched_dataset = batched_dataset.shuffle(10000)
+            batched_dataset = batched_dataset.shuffle(2000)
             batched_dataset = batched_dataset.repeat(None)
 
             iterator = batched_dataset.make_initializable_iterator()
             next_feature, next_label_in, next_label_out, feature_len, label_len = iterator.get_next()
+
             initializer_hook.initializer_func = lambda sess: sess.run(iterator.initializer)
             return (next_feature, feature_len), (next_label_in, next_label_out, label_len)
 
@@ -1223,6 +1214,7 @@ def get_eval_inputs(src, tgt, batch_size):
             else:
                 src_tgt_datasets = src_tgt_datasets.map(lambda src, tgt: (
                     tf.string_split([src], delimiter='').values, tf.string_split([tgt], delimiter='').values))
+
             src_tgt_datasets = src_tgt_datasets.filter(
                 lambda src, tgt: tf.logical_and(tf.size(src) > 0, tf.size(tgt) > 0))
 
@@ -1272,7 +1264,7 @@ def get_eval_inputs(src, tgt, batch_size):
                 tf.data.experimental.group_by_window(
                     key_func=key_func, reduce_func=reduce_func, window_size=batch_size))
 
-            batched_dataset = batched_dataset.shuffle(10000)
+            batched_dataset = batched_dataset.shuffle(2000)
             batched_dataset = batched_dataset.repeat(None)
 
             iterator = batched_dataset.make_initializable_iterator()
@@ -1298,6 +1290,7 @@ def get_predict_inputs(src, batch_size):
                 src_datasets = src_datasets.map(lambda src: tf.string_split([src]).values)
             else:
                 src_datasets = src_datasets.map(lambda src: tf.string_split([src], delimiter='').values)
+
             src_datasets = src_datasets.filter(
                 lambda src: tf.size(src) > 0)
 
@@ -1323,7 +1316,9 @@ def get_predict_inputs(src, batch_size):
 
             iterator = src_datasets.make_initializable_iterator()
             next_feature, feature_len = iterator.get_next()
+
             initializer_hook.initializer_func = lambda sess: sess.run(iterator.initializer)
+
             return tf.concat([next_feature, tf.expand_dims(feature_len, axis=1)], axis=-1)
 
     return predict_inputs, initializer_hook
